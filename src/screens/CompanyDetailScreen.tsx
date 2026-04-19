@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  ActivityIndicator, Linking, Alert,
+  ActivityIndicator, Linking, Alert, Vibration,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -93,15 +93,18 @@ export function CompanyDetailScreen() {
 
   function handleWhatsApp() {
     if (!company.phone) { Alert.alert('Telefone não disponível'); return; }
+    Vibration.vibrate(40);
     Linking.openURL(`https://wa.me/55${company.phone.replace(/\D/g, '')}`);
   }
 
   function handleCall() {
     if (!company.phone) { Alert.alert('Telefone não disponível'); return; }
+    Vibration.vibrate(40);
     Linking.openURL(`tel:${company.phone}`);
   }
 
   function handleChat() {
+    Vibration.vibrate(40);
     navigation.navigate('Chat', { userId: company.user_id, userName: company.name, userAvatar: company.logo });
   }
 
@@ -123,12 +126,7 @@ export function CompanyDetailScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* Contact bar */}
-      <View style={styles.contactBar}>
-        <ContactBtn icon="chatbubble-outline" label="Mensagem" onPress={handleChat} />
-        <ContactBtn icon="logo-whatsapp" label="WhatsApp" onPress={handleWhatsApp} color="#22c55e" />
-        <ContactBtn icon="call-outline" label="Ligar" onPress={handleCall} />
-      </View>
+
 
       {/* Tabs */}
       <View style={styles.tabBar}>
@@ -166,23 +164,27 @@ export function CompanyDetailScreen() {
           )}
         </ScrollView>
       )}
+
+      {/* Bottom CTA */}
+      <View style={styles.bottomBar}>
+        <TouchableOpacity style={styles.chatBtn} onPress={handleChat}>
+          <Ionicons name="chatbubble-outline" size={15} color={COLORS.primary} />
+          <Text style={styles.chatBtnText}>Chat</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.chatBtn} onPress={handleCall}>
+          <Ionicons name="call-outline" size={15} color={COLORS.primary} />
+          <Text style={styles.chatBtnText}>Ligar</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.whatsappBtn} onPress={handleWhatsApp}>
+          <Ionicons name="logo-whatsapp" size={15} color="#fff" />
+          <Text style={styles.whatsappBtnText}>Enviar Mensagem</Text>
+        </TouchableOpacity>
+      </View>
     </View>
   );
 }
 
-// ─── Contact Button ───────────────────────────────────────────────────────────
 
-function ContactBtn({ icon, label, onPress, color }: { icon: string; label: string; onPress: () => void; color?: string }) {
-  const c = color || COLORS.primary;
-  return (
-    <TouchableOpacity style={contactStyles.btn} onPress={onPress}>
-      <View style={[contactStyles.iconWrap, { backgroundColor: c + '15', borderColor: c + '30' }]}>
-        <Ionicons name={icon as any} size={20} color={c} />
-      </View>
-      <Text style={[contactStyles.label, { color: c }]}>{label}</Text>
-    </TouchableOpacity>
-  );
-}
 
 // ─── Overview Tab ─────────────────────────────────────────────────────────────
 
@@ -434,17 +436,36 @@ const styles = StyleSheet.create({
   tabItemActive: { borderBottomColor: COLORS.primary },
   tabLabel: { fontSize: 11, fontWeight: '600', color: COLORS.textSecondary },
   tabLabelActive: { color: COLORS.primary },
-  content: { padding: 16, gap: 12, paddingBottom: 32 },
-});
+  content: { padding: 16, gap: 12, paddingBottom: 100 },
 
-const contactStyles = StyleSheet.create({
-  btn: { flex: 1, alignItems: 'center', gap: 5 },
-  iconWrap: {
-    width: 44, height: 44, borderRadius: 22,
-    alignItems: 'center', justifyContent: 'center',
-    borderWidth: 1,
+  // Bottom Bar
+  bottomBar: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    flexDirection: 'row', gap: 8,
+    backgroundColor: COLORS.surface, paddingHorizontal: 16, paddingVertical: 6,
+    borderTopWidth: 1, borderTopColor: COLORS.border,
+    elevation: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
   },
-  label: { fontSize: 11, fontWeight: '600' },
+  chatBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5,
+    flex: 1, height: 38, borderRadius: 10,
+    borderWidth: 1, borderColor: COLORS.border,
+    backgroundColor: COLORS.background,
+  },
+  chatBtnText: { color: COLORS.primary, fontSize: 13, fontWeight: '600' },
+  whatsappBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+    flex: 1.5, height: 38, borderRadius: 10,
+    backgroundColor: '#25D366',
+  },
+  whatsappBtnText: { color: '#fff', fontSize: 13, fontWeight: '600' },
 });
 
 const ovStyles = StyleSheet.create({

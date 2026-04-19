@@ -1,14 +1,15 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity,
-  RefreshControl, Alert, ActivityIndicator, Modal, TextInput,
+  RefreshControl, Alert, ActivityIndicator, Modal, TextInput, ScrollView, KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
-import { COLORS, BRAZILIAN_STATES } from '../utils/constants';
+import { COLORS } from '../utils/constants';
 import { formatRoute, getTimeAgo } from '../utils/helpers';
+import { CityAutocompleteInput } from '../components/CityAutocompleteInput';
 import type { PreferredRoute } from '../types';
 
 export function RoutesScreen() {
@@ -183,6 +184,8 @@ function AddRouteModal({ visible, driverId, onClose, onSaved }: {
   const [minValue, setMinValue] = useState('');
   const [saving, setSaving] = useState(false);
 
+  const insets = useSafeAreaInsets();
+
   async function handleSave() {
     if (!originCity.trim() || !originState.trim() || !destCity.trim() || !destState.trim()) {
       Alert.alert('Atenção', 'Preencha origem e destino completos.');
@@ -209,85 +212,95 @@ function AddRouteModal({ visible, driverId, onClose, onSaved }: {
   }
 
   return (
-    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
-      <View style={modalStyles.container}>
-        <View style={modalStyles.handle} />
-        <Text style={modalStyles.title}>Nova Rota Preferida</Text>
-
-        <Text style={modalStyles.sectionLabel}>Origem</Text>
-        <View style={modalStyles.row}>
-          <TextInput
-            style={[modalStyles.input, { flex: 2 }]}
-            placeholder="Cidade"
-            value={originCity}
-            onChangeText={setOriginCity}
-            placeholderTextColor={COLORS.textLight}
-          />
-          <TextInput
-            style={[modalStyles.input, { flex: 1 }]}
-            placeholder="UF"
-            value={originState}
-            onChangeText={t => setOriginState(t.toUpperCase())}
-            maxLength={2}
-            autoCapitalize="characters"
-            placeholderTextColor={COLORS.textLight}
-          />
-        </View>
-
-        <Text style={modalStyles.sectionLabel}>Destino</Text>
-        <View style={modalStyles.row}>
-          <TextInput
-            style={[modalStyles.input, { flex: 2 }]}
-            placeholder="Cidade"
-            value={destCity}
-            onChangeText={setDestCity}
-            placeholderTextColor={COLORS.textLight}
-          />
-          <TextInput
-            style={[modalStyles.input, { flex: 1 }]}
-            placeholder="UF"
-            value={destState}
-            onChangeText={t => setDestState(t.toUpperCase())}
-            maxLength={2}
-            autoCapitalize="characters"
-            placeholderTextColor={COLORS.textLight}
-          />
-        </View>
-
-        <Text style={modalStyles.sectionLabel}>Prioridade</Text>
-        <View style={modalStyles.priorityRow}>
-          {(['high', 'medium', 'low'] as const).map(p => (
-            <TouchableOpacity
-              key={p}
-              style={[modalStyles.priorityBtn, priority === p && modalStyles.priorityBtnActive]}
-              onPress={() => setPriority(p)}
-            >
-              <Text style={[modalStyles.priorityBtnText, priority === p && modalStyles.priorityBtnTextActive]}>
-                {p === 'high' ? 'Alta' : p === 'medium' ? 'Média' : 'Baixa'}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-
-        <Text style={modalStyles.sectionLabel}>Valor Mínimo (opcional)</Text>
-        <TextInput
-          style={modalStyles.input}
-          placeholder="R$ 0,00"
-          value={minValue}
-          onChangeText={setMinValue}
-          keyboardType="numeric"
-          placeholderTextColor={COLORS.textLight}
+    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
+      <KeyboardAvoidingView
+        style={modalStyles.overlay}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      >
+        <TouchableOpacity
+          style={modalStyles.backdrop}
+          activeOpacity={1}
+          onPress={onClose}
         />
+        <View style={[modalStyles.sheet, { paddingBottom: insets.bottom + 16 }]}>
+          <View style={modalStyles.handle} />
+          
+          <View style={modalStyles.modalHeader}>
+            <Text style={modalStyles.modalTitle}>Nova Rota Preferida</Text>
+            <TouchableOpacity onPress={onClose}>
+              <Ionicons name="close" size={24} color={COLORS.textSecondary} />
+            </TouchableOpacity>
+          </View>
 
-        <View style={modalStyles.btnRow}>
-          <TouchableOpacity style={modalStyles.cancelBtn} onPress={onClose}>
-            <Text style={modalStyles.cancelBtnText}>Cancelar</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={modalStyles.saveBtn} onPress={handleSave} disabled={saving}>
-            {saving ? <ActivityIndicator color="#fff" /> : <Text style={modalStyles.saveBtnText}>Salvar</Text>}
-          </TouchableOpacity>
+          <ScrollView 
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={modalStyles.modalContent}
+            keyboardShouldPersistTaps="handled"
+          >
+            <View style={modalStyles.section}>
+              <Text style={modalStyles.sectionLabel}>Origem</Text>
+              <CityAutocompleteInput
+                placeholder="Cidade de origem"
+                value={originCity ? `${originCity} - ${originState}` : ''}
+                onSelect={(city, state) => {
+                  setOriginCity(city);
+                  setOriginState(state);
+                }}
+              />
+            </View>
+
+            <View style={modalStyles.section}>
+              <Text style={modalStyles.sectionLabel}>Destino</Text>
+              <CityAutocompleteInput
+                placeholder="Cidade de destino"
+                value={destCity ? `${destCity} - ${destState}` : ''}
+                onSelect={(city, state) => {
+                  setDestCity(city);
+                  setDestState(state);
+                }}
+              />
+            </View>
+
+            <View style={modalStyles.section}>
+              <Text style={modalStyles.sectionLabel}>Prioridade</Text>
+              <View style={modalStyles.priorityRow}>
+                {(['high', 'medium', 'low'] as const).map(p => (
+                  <TouchableOpacity
+                    key={p}
+                    style={[modalStyles.priorityBtn, priority === p && modalStyles.priorityBtnActive]}
+                    onPress={() => setPriority(p)}
+                  >
+                    <Text style={[modalStyles.priorityBtnText, priority === p && modalStyles.priorityBtnTextActive]}>
+                      {p === 'high' ? 'Alta' : p === 'medium' ? 'Média' : 'Baixa'}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+
+            <View style={modalStyles.section}>
+              <Text style={modalStyles.sectionLabel}>Valor Mínimo (opcional)</Text>
+              <TextInput
+                style={modalStyles.input}
+                placeholder="R$ 0,00"
+                value={minValue}
+                onChangeText={setMinValue}
+                keyboardType="numeric"
+                placeholderTextColor={COLORS.textLight}
+              />
+            </View>
+          </ScrollView>
+
+          <View style={modalStyles.footer}>
+            <TouchableOpacity style={modalStyles.cancelBtn} onPress={onClose}>
+              <Text style={modalStyles.cancelBtnText}>Cancelar</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={modalStyles.saveBtn} onPress={handleSave} disabled={saving}>
+              {saving ? <ActivityIndicator color="#fff" /> : <Text style={modalStyles.saveBtnText}>Salvar Rota</Text>}
+            </TouchableOpacity>
+          </View>
         </View>
-      </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
@@ -352,18 +365,34 @@ const cardStyles = StyleSheet.create({
 });
 
 const modalStyles = StyleSheet.create({
-  container: { flex: 1, padding: 24, gap: 10, backgroundColor: COLORS.surface },
-  handle: {
-    width: 36, height: 4, borderRadius: 2,
-    backgroundColor: COLORS.border, alignSelf: 'center', marginBottom: 8,
+  overlay: { flex: 1, justifyContent: 'flex-end' },
+  backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)' },
+  sheet: {
+    backgroundColor: COLORS.surface,
+    borderTopLeftRadius: 24, borderTopRightRadius: 24,
+    maxHeight: '88%',
   },
-  title: { fontSize: 20, fontWeight: '800', color: COLORS.text, marginBottom: 8 },
-  sectionLabel: { fontSize: 13, fontWeight: '600', color: COLORS.textSecondary, marginTop: 4 },
-  row: { flexDirection: 'row', gap: 10 },
+  handle: {
+    width: 40, height: 4, borderRadius: 2,
+    backgroundColor: COLORS.border,
+    alignSelf: 'center', marginTop: 12, marginBottom: 4,
+  },
+  modalHeader: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    paddingHorizontal: 20, paddingVertical: 14,
+    borderBottomWidth: 1, borderBottomColor: COLORS.border,
+  },
+  modalTitle: { fontSize: 18, fontWeight: '700', color: COLORS.text },
+  modalContent: { paddingHorizontal: 20, paddingBottom: 8 },
+  section: {
+    paddingVertical: 12,
+    gap: 8,
+  },
+  sectionLabel: { fontSize: 13, fontWeight: '600', color: COLORS.textSecondary },
   input: {
     backgroundColor: COLORS.background,
     borderRadius: 12,
-    borderWidth: 1.5,
+    borderWidth: 1,
     borderColor: COLORS.border,
     paddingHorizontal: 14,
     height: 46,
@@ -373,13 +402,21 @@ const modalStyles = StyleSheet.create({
   priorityRow: { flexDirection: 'row', gap: 10 },
   priorityBtn: {
     flex: 1, height: 40, borderRadius: 10,
-    borderWidth: 1.5, borderColor: COLORS.border,
+    borderWidth: 1, borderColor: COLORS.border,
     alignItems: 'center', justifyContent: 'center',
+    backgroundColor: COLORS.background,
   },
   priorityBtnActive: { backgroundColor: COLORS.primary, borderColor: COLORS.primary },
   priorityBtnText: { fontSize: 13, fontWeight: '600', color: COLORS.textSecondary },
   priorityBtnTextActive: { color: '#fff' },
-  btnRow: { flexDirection: 'row', gap: 12, marginTop: 12 },
+  footer: {
+    flexDirection: 'row',
+    gap: 12,
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: COLORS.border,
+  },
   cancelBtn: {
     flex: 1, height: 50, borderRadius: 12,
     borderWidth: 1.5, borderColor: COLORS.border,

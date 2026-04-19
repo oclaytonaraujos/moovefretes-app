@@ -1,11 +1,11 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity,
-  RefreshControl, ActivityIndicator, Alert, ScrollView,
+  RefreshControl, ActivityIndicator, Alert, ScrollView, Modal,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
 import { COLORS } from '../utils/constants';
@@ -30,6 +30,7 @@ interface ConversationSummary {
   originState: string | null;
   destinationCity: string | null;
   destinationState: string | null;
+  isPinned: boolean;
 }
 
 const FILTERS: { key: FilterType; label: string; icon: string }[] = [
@@ -47,7 +48,41 @@ export function ChatListScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [profileModal, setProfileModal] = useState<{ userId: string } | null>(null);
+  const [optionsModal, setOptionsModal] = useState<ConversationSummary | null>(null);
   const [activeFilter, setActiveFilter] = useState<FilterType>('all');
+
+  async function handlePinConversation(conv: ConversationSummary) {
+    setOptionsModal(null);
+    const newVal = !conv.isPinned;
+    const { error } = await supabase.from('conversations').update({ is_pinned: newVal }).eq('id', conv.conversationId);
+    if (!error) load();
+  }
+
+  async function handleDeleteConversation(conv: ConversationSummary) {
+    setOptionsModal(null);
+    setTimeout(() => {
+      Alert.alert(
+        'Apagar Conversa',
+        'Tem certeza que deseja apagar esta conversa permanentemente?',
+        [
+          { text: 'Cancelar', style: 'cancel' },
+          { 
+            text: 'Apagar', 
+            style: 'destructive',
+            onPress: async () => {
+              await supabase.from('messages').delete().eq('conversation_id', conv.conversationId);
+              const { error } = await supabase.from('conversations').delete().eq('id', conv.conversationId);
+              if (error) {
+                Alert.alert('Erro', 'Não foi possível apagar a conversa.');
+              } else {
+                load();
+              }
+            }
+          }
+        ]
+      );
+    }, 100);
+  }
 
   const load = useCallback(async () => {
     if (!user) return;
@@ -109,6 +144,10 @@ export function ChatListScreen() {
         const otherId = isP1 ? c.participant2_id : c.participant1_id;
         const profile = profileMap.get(otherId);
         const lastMsg = lastMsgMap.get(c.id);
+        
+        // In order to bypass a server-side DB bug, ChatScreen saves source as 'direct' and puts the real source in metadata
+        const realSource = (c.source === 'direct' && c.metadata?.original_source) ? c.metadata.original_source : c.source;
+
         return {
           conversationId: c.id,
           otherUserId: otherId,
@@ -119,12 +158,17 @@ export function ChatListScreen() {
           lastMessageRead: lastMsg?.is_read ?? true,
           lastMessageAt: c.last_message_at || c.created_at,
           unreadCount: unreadMap.get(c.id) || 0,
-          source: c.source || null,
+          source: realSource || null,
           originCity: c.origin_city || null,
           originState: c.origin_state || null,
           destinationCity: c.destination_city || null,
           destinationState: c.destination_state || null,
+          isPinned: c.is_pinned || false,
         };
+      }).sort((a, b) => {
+        if (a.isPinned && !b.isPinned) return -1;
+        if (!a.isPinned && b.isPinned) return 1;
+        return new Date(b.lastMessageAt).getTime() - new Date(a.lastMessageAt).getTime();
       });
 
       setConversations(result);
@@ -133,13 +177,20 @@ export function ChatListScreen() {
     }
   }, [user]);
 
-  useEffect(() => { load(); }, [load]);
+  useFocusEffect(
+    useCallback(() => {
+      load();
+    }, [load])
+  );
 
   useEffect(() => {
     if (!user) return;
     const channel = supabase
-      .channel('chat-list-realtime')
+      .channel(`chat-list-${Date.now()}`)
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, () => {
+        load();
+      })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'messages', filter: 'is_read=eq.true' }, () => {
         load();
       })
       .subscribe();
@@ -232,7 +283,7 @@ export function ChatListScreen() {
             const isMe = item.lastMessageSenderId === user?.id;
             return (
               <TouchableOpacity
-                style={styles.convItem}
+                style={[styles.convItem, item.isPinned && styles.convItemPinned]}
                 onPress={() => navigation.navigate('Chat', {
                   conversationId: item.conversationId,
                   userId: item.otherUserId,
@@ -244,6 +295,7 @@ export function ChatListScreen() {
                   destinationCity: item.destinationCity,
                   destinationState: item.destinationState,
                 })}
+                onLongPress={() => setOptionsModal(item)}
                 activeOpacity={0.7}
               >
                 <TouchableOpacity
@@ -276,13 +328,18 @@ export function ChatListScreen() {
                       </Text>
                     </View>
                   )}
-                  <Text
-                    style={[styles.convName, item.unreadCount > 0 && styles.convNameUnread]}
-                    numberOfLines={1}
-                    ellipsizeMode="tail"
-                  >
-                    {item.otherUserName}
-                  </Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <Text
+                      style={[styles.convName, item.unreadCount > 0 && styles.convNameUnread]}
+                      numberOfLines={1}
+                      ellipsizeMode="tail"
+                    >
+                      {item.otherUserName}
+                    </Text>
+                    {item.isPinned && (
+                      <Ionicons name="pin" size={12} color={COLORS.textSecondary} />
+                    )}
+                  </View>
                   {!!item.lastMessage && (
                     <View style={styles.msgRow}>
                       {isMe && (
@@ -341,6 +398,56 @@ export function ChatListScreen() {
         userId={profileModal?.userId || ''}
         onClose={() => setProfileModal(null)}
       />
+
+      <Modal visible={!!optionsModal} transparent animationType="fade" onRequestClose={() => setOptionsModal(null)}>
+        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setOptionsModal(null)}>
+          <View style={styles.actionSheet}>
+            <View style={styles.actionSheetHeader}>
+              <Text style={styles.actionSheetTitle} numberOfLines={1}>{optionsModal?.otherUserName}</Text>
+            </View>
+
+            <TouchableOpacity 
+              style={styles.actionOption} 
+              onPress={() => {
+                const userId = optionsModal?.otherUserId;
+                setOptionsModal(null);
+                if (userId) setTimeout(() => setProfileModal({ userId }), 100);
+              }}
+            >
+              <Ionicons name="person-outline" size={22} color={COLORS.text} />
+              <Text style={styles.actionOptionText}>Ver perfil</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity 
+              style={styles.actionOption} 
+              onPress={() => {
+                if (optionsModal) handlePinConversation(optionsModal);
+              }}
+            >
+              <Ionicons name={optionsModal?.isPinned ? "pin" : "pin-outline"} size={22} color={COLORS.text} />
+              <Text style={styles.actionOptionText}>
+                {optionsModal?.isPinned ? 'Desfixar conversa' : 'Fixar conversa'}
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity 
+              style={styles.actionOption} 
+              onPress={() => {
+                if (optionsModal) handleDeleteConversation(optionsModal);
+              }}
+            >
+              <Ionicons name="trash-outline" size={22} color={COLORS.danger} />
+              <Text style={[styles.actionOptionText, { color: COLORS.danger }]}>Apagar conversa</Text>
+            </TouchableOpacity>
+
+            <View style={[styles.actionSheetFooter, { paddingBottom: Math.max(insets.bottom, 16) }]}>
+              <TouchableOpacity style={styles.actionCancelBtn} onPress={() => setOptionsModal(null)}>
+                <Text style={styles.actionCancelText}>Cancelar</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </TouchableOpacity>
+      </Modal>
     </View>
   );
 }
@@ -429,4 +536,53 @@ const styles = StyleSheet.create({
   empty: { alignItems: 'center', paddingTop: 80, gap: 10, paddingHorizontal: 32 },
   emptyTitle: { fontSize: 16, fontWeight: '700', color: COLORS.text },
   emptyDesc: { fontSize: 13, color: COLORS.textSecondary, textAlign: 'center', lineHeight: 18 },
+  convItemPinned: { backgroundColor: COLORS.primary + '08' },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+  },
+  actionSheet: {
+    backgroundColor: COLORS.surface,
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+  },
+  actionSheetHeader: {
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.borderLight,
+    alignItems: 'center',
+  },
+  actionSheetTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: COLORS.text,
+  },
+  actionOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    gap: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.borderLight,
+  },
+  actionOptionText: {
+    fontSize: 16,
+    color: COLORS.text,
+    fontWeight: '500',
+  },
+  actionSheetFooter: {
+    padding: 16,
+  },
+  actionCancelBtn: {
+    backgroundColor: COLORS.background,
+    padding: 14,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  actionCancelText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: COLORS.textSecondary,
+  },
 });

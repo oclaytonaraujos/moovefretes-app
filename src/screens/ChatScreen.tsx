@@ -2,8 +2,13 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity,
   TextInput, KeyboardAvoidingView, Platform, ActivityIndicator,
-  Vibration, Alert,
+  Vibration, Alert, Modal, Image,
 } from 'react-native';
+import * as DocumentPicker from 'expo-document-picker';
+import * as ImagePicker from 'expo-image-picker';
+import * as FileSystem from 'expo-file-system/legacy';
+import { decode } from 'base64-arraybuffer';
+import * as Linking from 'expo-linking';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
@@ -30,7 +35,13 @@ export function ChatScreen() {
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [showProfileModal, setShowProfileModal] = useState(false);
+  const [showOptionsModal, setShowOptionsModal] = useState(false);
+  const [showAttachOptions, setShowAttachOptions] = useState(false);
+  const [isPinned, setIsPinned] = useState(false);
+  const [pendingAttachment, setPendingAttachment] = useState<{ uri: string; name: string; mimeType: string } | null>(null);
   const flatListRef = useRef<FlatList>(null);
+  const firstUnreadIndexRef = useRef<number>(-1);
+  const initialScrollDoneRef = useRef<boolean>(false);
 
   const getOrCreateConversation = useCallback(async (): Promise<string | null> => {
     if (!user || !otherUserId) return null;
@@ -39,33 +50,56 @@ export function ChatScreen() {
     const participantsFilter =
       `and(participant1_id.eq.${user.id},participant2_id.eq.${otherUserId}),and(participant1_id.eq.${otherUserId},participant2_id.eq.${user.id})`;
 
-    // Look for an existing conversation between these participants
-    // For freight/route: scope to the specific source_id; for direct: any existing thread
-    const existingQuery = supabase
+    // Always use an EXISITING conversation between these two users
+    // We strictly want one single chat thread per user pair.
+    const { data: existingChats } = await supabase
       .from('conversations')
-      .select('id')
-      .or(participantsFilter);
+      .select('id, is_pinned')
+      .or(participantsFilter)
+      .order('created_at', { ascending: false })
+      .limit(1);
 
-    const { data: existing } = source && sourceId
-      ? await existingQuery.eq('source_id', sourceId).maybeSingle()
-      : await existingQuery.maybeSingle();
+    if (existingChats && existingChats.length > 0) {
+      const conv = existingChats[0];
+      const convId = conv.id;
+      setConversationId(convId);
+      setIsPinned(conv.is_pinned || false);
+      
+      // If we're entering from a freight/route context (and not just reloading an empty direct chat),
+      // we need to update the existing conversation's metadata so the ChatList and Header show the new context.
+      if (source && (source === 'freight' || source === 'route')) {
+        await supabase.from('conversations').update({
+          source: 'direct', // Bypass the trigger
+          source_id: sourceId || null,
+          freight_id: source === 'freight' ? sourceId : null,
+          origin_city: originCity || null,
+          origin_state: originState || null,
+          destination_city: destinationCity || null,
+          destination_state: destinationState || null,
+          metadata: {
+            original_source: source
+          }
+        }).eq('id', convId);
+      }
 
-    if (existing) {
-      setConversationId(existing.id);
-      return existing.id;
+      return convId;
     }
 
-    // Prepare the payload based on whether it's a freight or route
-    // We pass empty strings instead of null to bypass the broken 'sync_conversation_route_data' trigger in Supabase
+    // We force `source` to 'direct' and store the real source in `metadata`
+    // This COMPLETELY BYPASSES the broken Postgres trigger on the Supabase server
+    // that throws "column 'origin' does not exist" when `source='freight'`
     const payload: any = {
       participant1_id: user.id,
       participant2_id: otherUserId,
-      source: source || 'direct',
+      source: 'direct', // Bypass the trigger
       source_id: sourceId || null,
-      origin_city: originCity || '',
-      origin_state: originState || '',
-      destination_city: destinationCity || '',
-      destination_state: destinationState || '',
+      origin_city: originCity || null,
+      origin_state: originState || null,
+      destination_city: destinationCity || null,
+      destination_state: destinationState || null,
+      metadata: {
+        original_source: source || 'direct'
+      }
     };
 
     if (source === 'freight' && sourceId) {
@@ -88,20 +122,22 @@ export function ChatScreen() {
       console.error('Failed to create full conversation, trying fallback. Error:', error);
     }
 
-    // Fallback: insert with minimal columns but still try to keep source info
-    // We pass empty strings instead of null for cities here as well to bypass the trigger again
+    // Fallback in case of some other schema issue
     const { data: fallback, error: fallbackError } = await supabase
       .from('conversations')
       .insert({ 
         participant1_id: user.id, 
         participant2_id: otherUserId,
-        source: source || 'direct',
+        source: 'direct', // Bypass the trigger
         source_id: sourceId || null,
         freight_id: source === 'freight' ? sourceId : null,
-        origin_city: originCity || '',
-        origin_state: originState || '',
-        destination_city: destinationCity || '',
-        destination_state: destinationState || '',
+        origin_city: originCity || null,
+        origin_state: originState || null,
+        destination_city: destinationCity || null,
+        destination_state: destinationState || null,
+        metadata: {
+          original_source: source || 'direct'
+        }
       })
       .select('id')
       .single();
@@ -114,8 +150,47 @@ export function ChatScreen() {
     if (fallbackError) {
       console.error('Fallback insert failed too:', fallbackError);
     }
+    setIsPinned(false);
     return null;
   }, [user, otherUserId, conversationId, source, sourceId, originCity, originState, destinationCity, destinationState]);
+
+  async function handlePinConversation() {
+    if (!conversationId) return;
+    setShowOptionsModal(false);
+    const newVal = !isPinned;
+    setIsPinned(newVal);
+    const { error } = await supabase.from('conversations').update({ is_pinned: newVal }).eq('id', conversationId);
+    if (error) {
+      setIsPinned(!newVal);
+    }
+  }
+
+  async function handleDeleteConversation() {
+    if (!conversationId) return;
+    setShowOptionsModal(false);
+    setTimeout(() => {
+      Alert.alert(
+        'Apagar Conversa',
+        'Tem certeza que deseja apagar esta conversa permanentemente?',
+        [
+          { text: 'Cancelar', style: 'cancel' },
+          { 
+            text: 'Apagar', 
+            style: 'destructive',
+            onPress: async () => {
+              await supabase.from('messages').delete().eq('conversation_id', conversationId);
+              const { error } = await supabase.from('conversations').delete().eq('id', conversationId);
+              if (error) {
+                Alert.alert('Erro', 'Não foi possível apagar a conversa.');
+              } else {
+                navigation.goBack();
+              }
+            }
+          }
+        ]
+      );
+    }, 100);
+  }
 
   const load = useCallback(async () => {
     if (!user || !otherUserId) return;
@@ -128,23 +203,45 @@ export function ChatScreen() {
       .eq('conversation_id', convId)
       .order('created_at', { ascending: true });
 
-    setMessages(data || []);
+    const msgs = data || [];
+
+    // Determine the index of the first unread message (from the other user)
+    // BEFORE marking them as read, so we can scroll to it on open.
+    const firstUnread = msgs.findIndex(m => m.sender_id !== user.id && !m.is_read);
+    firstUnreadIndexRef.current = firstUnread;
+    initialScrollDoneRef.current = false;
+
+    setMessages(msgs);
     setLoading(false);
 
-    await supabase
+    const { data: updateData, error: updateError } = await supabase
       .from('messages')
       .update({ is_read: true })
       .eq('conversation_id', convId)
-      .eq('sender_id', otherUserId)
-      .eq('is_read', false);
+      .neq('sender_id', user.id)
+      .eq('is_read', false)
+      .select('id');
+      
+    if (updateError) {
+      console.warn('Failed to update messages read status:', updateError);
+    } else {
+      console.log('Messages marked as read:', updateData?.length || 0);
+    }
   }, [user, otherUserId, getOrCreateConversation]);
 
   useEffect(() => { load(); }, [load]);
 
   useEffect(() => {
     if (!conversationId || !user) return;
+    
+    // Append a unique random string to the channel name.
+    // This prevents the "cannot add postgres_changes callbacks... after subscribe()" error 
+    // that occurs if multiple instances of ChatScreen for the same conversation 
+    // are mounted in the navigation stack simultaneously.
+    const uniqueChannelName = `chat-conv-${conversationId}-${Math.random().toString(36).substring(7)}`;
+    
     const channel = supabase
-      .channel(`chat-conv-${conversationId}`)
+      .channel(uniqueChannelName)
       .on('postgres_changes', {
         event: 'INSERT',
         schema: 'public',
@@ -158,11 +255,48 @@ export function ChatScreen() {
         }
       })
       .subscribe();
+      
     return () => { supabase.removeChannel(channel); };
   }, [conversationId, user]);
 
   useEffect(() => {
-    if (messages.length > 0) {
+    if (messages.length === 0) return;
+
+    if (!initialScrollDoneRef.current) {
+      // Initial load: scroll to first unread or to the end
+      initialScrollDoneRef.current = true;
+      const unreadIndex = firstUnreadIndexRef.current;
+
+      // Build the grouped list index: each separator adds 1 extra item.
+      // We need to map the raw message index to the grouped list index.
+      let groupedUnreadIndex = -1;
+      if (unreadIndex >= 0) {
+        // Count separators that appear before the unread message in the grouped list
+        let sepCount = 0;
+        let lastDay = '';
+        for (let i = 0; i <= unreadIndex; i++) {
+          const day = new Date(messages[i].created_at).toDateString();
+          if (day !== lastDay) { sepCount++; lastDay = day; }
+        }
+        // grouped index = raw message index + number of separators before it
+        groupedUnreadIndex = unreadIndex + sepCount;
+      }
+
+      setTimeout(() => {
+        if (groupedUnreadIndex >= 0) {
+          // Scroll so the first unread message is aligned to the top
+          flatListRef.current?.scrollToIndex({
+            index: groupedUnreadIndex,
+            animated: false,
+            viewPosition: 0, // 0 = top of viewport
+          });
+        } else {
+          // No unread messages: last message at the bottom
+          flatListRef.current?.scrollToEnd({ animated: false });
+        }
+      }, 150);
+    } else {
+      // Subsequent updates (new messages arriving via realtime) → scroll to end
       setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
     }
   }, [messages]);
@@ -193,6 +327,153 @@ export function ChatScreen() {
     }
   }
 
+  const processAttachment = async (uri: string, name: string, mimeType: string) => {
+    setSending(true);
+    try {
+      const base64 = await FileSystem.readAsStringAsync(uri, { encoding: 'base64' });
+      const buffer = decode(base64);
+
+      const ext = (name.split('.').pop() || 'tmp').toLowerCase();
+      const filePath = `${Date.now()}_${user?.id?.slice(0, 8)}.${ext}`;
+      
+      const { data: uploadData, error: uploadError } = await supabase.storage
+        .from('chat-attachments')
+        .upload(filePath, buffer, {
+          contentType: mimeType || 'application/octet-stream',
+          upsert: true,
+        });
+
+      if (uploadError) {
+        Alert.alert('Erro no Upload', `Detalhes: ${uploadError.message}`);
+        return;
+      }
+
+      const { data: publicUrlData } = supabase.storage.from('chat-attachments').getPublicUrl(filePath);
+      const fileUrl = publicUrlData.publicUrl;
+
+      // Determina o tipo de mensagem igual ao web
+      const isImage = mimeType.startsWith('image/');
+      const messageType = isImage ? 'image' : 'file';
+
+      // Monta o attachment no mesmo formato que o web salva
+      const attachment = {
+        type: isImage ? 'image' : 'document',
+        url: fileUrl,          // URL pública direta
+        path: filePath,        // path no storage (compat com web)
+        filename: name,
+        name,                  // legado
+        size: undefined as number | undefined,
+      };
+
+      let convId = conversationId;
+      if (!convId) convId = await getOrCreateConversation();
+      if (!convId) return;
+
+      const now = new Date().toISOString();
+      const { data: msgData, error: msgError } = await supabase
+        .from('messages')
+        .insert({
+          conversation_id: convId,
+          sender_id: user?.id,
+          content: name,          // legenda ou nome do arquivo (igual ao web)
+          message_type: messageType,
+          attachments: [attachment],
+          is_read: false,
+        })
+        .select()
+        .single();
+
+      if (msgError) {
+        Alert.alert('Erro', `N\u00e3o foi poss\u00edvel salvar a mensagem: ${msgError.message}`);
+      } else {
+        await supabase.from('conversations').update({ last_message_at: now }).eq('id', convId);
+        setMessages(prev => [...prev, msgData]);
+        setPendingAttachment(null);
+      }
+    } catch(e: any) {
+      console.error(e);
+      Alert.alert('Erro', e?.message || 'Ocorreu um erro ao anexar item.');
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const handleAttachDocument = () => {
+    if (sending) return;
+    setShowAttachOptions(false);
+    setTimeout(async () => {
+      try {
+        const result = await DocumentPicker.getDocumentAsync({
+          type: '*/*',
+          copyToCacheDirectory: true,
+        });
+        if (result.canceled || !result.assets || result.assets.length === 0) return;
+        const asset = result.assets[0];
+        setPendingAttachment({ uri: asset.uri, name: asset.name, mimeType: asset.mimeType || 'unknown' });
+      } catch(e: any) {
+        Alert.alert('Erro no Documento', e?.message || 'Falha ao abrir seletor');
+      }
+    }, 400);
+  };
+
+  const handleAttachGallery = () => {
+    if (sending) return;
+    setShowAttachOptions(false);
+    setTimeout(async () => {
+      try {
+        const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (status !== 'granted') {
+          Alert.alert('Permissão negada', 'Precisamos de acesso à galeria para enviar fotos.');
+          return;
+        }
+        const result = await ImagePicker.launchImageLibraryAsync({
+          mediaTypes: ['images', 'videos'],
+          quality: 0.8,
+        });
+        if (result.canceled || !result.assets || result.assets.length === 0) return;
+        const asset = result.assets[0];
+        const name = asset.fileName || asset.uri.split('/').pop() || 'imagem.jpg';
+        let mimeType = asset.mimeType || 'image/jpeg';
+        if (!asset.mimeType) {
+           if (name.toLowerCase().endsWith('.png')) mimeType = 'image/png';
+           else if (name.toLowerCase().endsWith('.gif')) mimeType = 'image/gif';
+        }
+        setPendingAttachment({ uri: asset.uri, name, mimeType });
+      } catch(e: any) {
+        console.error(e);
+        Alert.alert('Erro na Galeria', e?.message || 'Falha ao abrir galeria');
+      }
+    }, 400);
+  };
+
+  const handleAttachCamera = () => {
+    if (sending) return;
+    setShowAttachOptions(false);
+    setTimeout(async () => {
+      try {
+        const { status } = await ImagePicker.requestCameraPermissionsAsync();
+        if (status !== 'granted') {
+          Alert.alert('Permissão negada', 'Precisamos de acesso à câmera para tirar fotos.');
+          return;
+        }
+        const result = await ImagePicker.launchCameraAsync({
+          quality: 0.8,
+        });
+        if (result.canceled || !result.assets || result.assets.length === 0) return;
+        const asset = result.assets[0];
+        const name = asset.fileName || asset.uri.split('/').pop() || 'foto.jpg';
+        let mimeType = asset.mimeType || 'image/jpeg';
+        if (!asset.mimeType) {
+           if (name.toLowerCase().endsWith('.png')) mimeType = 'image/png';
+        }
+        setPendingAttachment({ uri: asset.uri, name, mimeType });
+      } catch(e: any) {
+        console.error(e);
+        Alert.alert('Erro na Câmera', e?.message || 'Falha ao abrir câmera');
+      }
+    }, 400);
+  };
+
   function formatTime(dateString: string) {
     const d = new Date(dateString);
     return d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
@@ -220,13 +501,14 @@ export function ChatScreen() {
   });
 
   return (
-    <KeyboardAvoidingView
-      style={[styles.flex, { paddingTop: insets.top }]}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      keyboardVerticalOffset={0}
-    >
+    <View style={{ flex: 1 }}>
+      <KeyboardAvoidingView
+        style={[styles.flex, { paddingTop: insets.top }]}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={0}
+      >
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
+        <TouchableOpacity onPress={() => navigation.navigate('Main', { screen: 'ChatTab', params: { screen: 'ChatList' } })} style={styles.backBtn}>
           <Ionicons name="arrow-back" size={22} color={COLORS.text} />
         </TouchableOpacity>
         <TouchableOpacity style={styles.headerInfo} onPress={() => setShowProfileModal(true)} activeOpacity={0.8}>
@@ -254,8 +536,10 @@ export function ChatScreen() {
               </View>
             )}
             <Text style={styles.headerName}>{userName || 'Conversa'}</Text>
-            <Text style={styles.headerSub}>MooveFretes</Text>
           </View>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.headerOptionsBtn} onPress={() => setShowOptionsModal(true)}>
+          <Ionicons name="ellipsis-vertical" size={22} color={COLORS.text} />
         </TouchableOpacity>
       </View>
 
@@ -267,6 +551,10 @@ export function ChatScreen() {
           data={groupedMessages}
           keyExtractor={(item, i) => ('key' in item ? item.key : item.id) || String(i)}
           contentContainerStyle={styles.messages}
+          onScrollToIndexFailed={() => {
+            // Fallback: if item layout is unknown, just scroll to end
+            setTimeout(() => flatListRef.current?.scrollToEnd({ animated: false }), 200);
+          }}
           renderItem={({ item }) => {
             if ('type' in item) {
               return (
@@ -278,21 +566,62 @@ export function ChatScreen() {
               );
             }
             const isMine = item.sender_id === user?.id;
+            
+            // Suporte ao novo formato (message_type + attachments) igual ao web
+            // E fallback para o formato legado [FILE]
+            const msgType = (item as any).message_type;
+            const attachments = (item as any).attachments as Array<{ type: string; url?: string; path?: string; filename?: string; name?: string }> | undefined;
+            const hasAttachment = (msgType === 'image' || msgType === 'file') && attachments && attachments.length > 0;
+            
+            // Fallback legado [FILE]
+            const isLegacyFile = !hasAttachment && item.content.startsWith('[FILE]');
+            let legacyFileUrl = '';
+            let legacyFileName = '';
+            let legacyFileType = '';
+            if (isLegacyFile) {
+              const parts = item.content.replace('[FILE]', '').split('|');
+              legacyFileUrl = parts[0]?.trim();
+              legacyFileName = parts[1]?.trim() || 'Arquivo Anexado';
+              legacyFileType = parts[2]?.trim() || 'unknown';
+            }
+
+            // Dados do attachment (novo formato tem prioridade)
+            const att = hasAttachment ? attachments![0] : null;
+            const attUrl = att?.url || legacyFileUrl;
+            const attName = att?.filename || att?.name || legacyFileName;
+            const attIsImage = hasAttachment ? msgType === 'image' : legacyFileType.startsWith('image/');
+            const isFile = hasAttachment || isLegacyFile;
+
             return (
               <View style={[styles.msgWrap, isMine ? styles.msgWrapRight : styles.msgWrapLeft]}>
-                <View style={[styles.bubble, isMine ? styles.bubbleMine : styles.bubbleOther]}>
-                  <Text style={[styles.bubbleText, isMine && styles.bubbleTextMine]}>
-                    {item.content}
-                  </Text>
-                  <View style={styles.bubbleFooter}>
-                    <Text style={[styles.bubbleTime, isMine && styles.bubbleTimeMine]}>
+                <View style={[styles.bubble, isMine ? styles.bubbleMine : styles.bubbleOther, attIsImage && isFile && { paddingHorizontal: 4, paddingVertical: 4 }]}>
+                  {isFile ? (
+                    <TouchableOpacity activeOpacity={0.8} onPress={() => Linking.openURL(attUrl)}>
+                      {attIsImage ? (
+                         <Image source={{ uri: attUrl }} style={styles.chatImage} resizeMode="cover" />
+                      ) : (
+                         <View style={styles.fileRow}>
+                            <Ionicons name="document-text" size={32} color={isMine ? '#fff' : COLORS.primary} />
+                            <Text style={[styles.bubbleText, isMine && styles.bubbleTextMine, { textDecorationLine: 'underline', maxWidth: 200 }]} numberOfLines={2}>
+                              {attName}
+                            </Text>
+                         </View>
+                      )}
+                    </TouchableOpacity>
+                  ) : (
+                    <Text style={[styles.bubbleText, isMine && styles.bubbleTextMine]}>
+                      {item.content}
+                    </Text>
+                  )}
+                  <View style={[styles.bubbleFooter, attIsImage && isFile && { position: 'absolute', bottom: 8, right: 8, backgroundColor: 'rgba(0,0,0,0.5)', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 10, marginTop: 0 }]}>
+                    <Text style={[styles.bubbleTime, isMine && styles.bubbleTimeMine, attIsImage && isFile && { color: '#fff' }]}>
                       {formatTime(item.created_at)}
                     </Text>
                     {isMine && (
                       <Ionicons
                         name={item.is_read ? 'checkmark-done' : 'checkmark'}
                         size={12}
-                        color={item.is_read ? '#fff' : 'rgba(255,255,255,0.6)'}
+                        color={item.is_read ? (attIsImage && isFile ? '#4ade80' : '#fff') : 'rgba(255,255,255,0.6)'}
                       />
                     )}
                   </View>
@@ -315,10 +644,75 @@ export function ChatScreen() {
         onClose={() => setShowProfileModal(false)}
       />
 
+      <Modal visible={showOptionsModal} transparent animationType="fade" onRequestClose={() => setShowOptionsModal(false)}>
+        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setShowOptionsModal(false)}>
+          <View style={styles.actionSheet}>
+            <View style={styles.actionSheetHeader}>
+              <Text style={styles.actionSheetTitle} numberOfLines={1}>{userName}</Text>
+            </View>
+
+            <TouchableOpacity 
+              style={styles.actionOption} 
+              onPress={() => {
+                setShowOptionsModal(false);
+                setTimeout(() => setShowProfileModal(true), 100);
+              }}
+            >
+              <Ionicons name="person-outline" size={22} color={COLORS.text} />
+              <Text style={styles.actionOptionText}>Ver perfil</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity 
+              style={styles.actionOption} 
+              onPress={handlePinConversation}
+            >
+              <Ionicons name={isPinned ? "pin" : "pin-outline"} size={22} color={COLORS.text} />
+              <Text style={styles.actionOptionText}>
+                {isPinned ? 'Desfixar conversa' : 'Fixar conversa'}
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity 
+              style={styles.actionOption} 
+              onPress={handleDeleteConversation}
+            >
+              <Ionicons name="trash-outline" size={22} color={COLORS.danger} />
+              <Text style={[styles.actionOptionText, { color: COLORS.danger }]}>Apagar conversa</Text>
+            </TouchableOpacity>
+
+            <View style={[styles.actionSheetFooter, { paddingBottom: Math.max(insets.bottom, 16) }]}>
+              <TouchableOpacity style={styles.actionCancelBtn} onPress={() => setShowOptionsModal(false)}>
+                <Text style={styles.actionCancelText}>Cancelar</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
+
+      {pendingAttachment && (
+        <View style={styles.previewBar}>
+          {pendingAttachment.mimeType.startsWith('image/') ? (
+            <Image source={{ uri: pendingAttachment.uri }} style={styles.previewImage} resizeMode="cover" />
+          ) : (
+            <View style={styles.previewDoc}>
+              <Ionicons name="document-text" size={28} color={COLORS.primary} />
+              <Text style={styles.previewDocName} numberOfLines={2}>{pendingAttachment.name}</Text>
+            </View>
+          )}
+          <TouchableOpacity style={styles.previewCancel} onPress={() => setPendingAttachment(null)}>
+            <Ionicons name="close-circle" size={22} color={COLORS.danger} />
+          </TouchableOpacity>
+        </View>
+      )}
+
       <View style={styles.inputBar}>
+        <TouchableOpacity style={styles.attachBtn} onPress={() => setShowAttachOptions(true)} disabled={sending}>
+          <Ionicons name="attach" size={26} color={COLORS.textLight} />
+        </TouchableOpacity>
         <TextInput
           style={styles.input}
-          placeholder="Escreva uma mensagem..."
+          placeholder={pendingAttachment ? 'Adicione uma legenda...' : 'Escreva uma mensagem...'}
           placeholderTextColor={COLORS.textLight}
           value={text}
           onChangeText={setText}
@@ -327,9 +721,15 @@ export function ChatScreen() {
           returnKeyType="default"
         />
         <TouchableOpacity
-          style={[styles.sendBtn, (!text.trim() || sending) && styles.sendBtnDisabled]}
-          onPress={handleSend}
-          disabled={!text.trim() || sending}
+          style={[styles.sendBtn, ((!text.trim() && !pendingAttachment) || sending) && styles.sendBtnDisabled]}
+          onPress={() => {
+            if (pendingAttachment) {
+              processAttachment(pendingAttachment.uri, pendingAttachment.name, pendingAttachment.mimeType);
+            } else {
+              handleSend();
+            }
+          }}
+          disabled={(!text.trim() && !pendingAttachment) || sending}
         >
           {sending ? (
             <ActivityIndicator size="small" color="#fff" />
@@ -339,6 +739,40 @@ export function ChatScreen() {
         </TouchableOpacity>
       </View>
     </KeyboardAvoidingView>
+
+    {showAttachOptions && (
+      <View style={[StyleSheet.absoluteFill, { zIndex: 9999, elevation: 9999 }]}>
+        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setShowAttachOptions(false)}>
+          <View style={styles.actionSheet}>
+            <View style={styles.actionSheetHeader}>
+              <Text style={styles.actionSheetTitle}>Adicionar Anexo</Text>
+            </View>
+
+            <TouchableOpacity style={styles.actionOption} onPress={handleAttachCamera}>
+              <Ionicons name="camera-outline" size={24} color={COLORS.primary} />
+              <Text style={styles.actionOptionText}>Câmera</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.actionOption} onPress={handleAttachGallery}>
+              <Ionicons name="image-outline" size={24} color={COLORS.primary} />
+              <Text style={styles.actionOptionText}>Galeria de Fotos</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.actionOption} onPress={handleAttachDocument}>
+              <Ionicons name="document-text-outline" size={24} color={COLORS.primary} />
+              <Text style={styles.actionOptionText}>Documento</Text>
+            </TouchableOpacity>
+
+            <View style={[styles.actionSheetFooter, { paddingBottom: Math.max(insets.bottom, 16) }]}>
+              <TouchableOpacity style={styles.actionCancelBtn} onPress={() => setShowAttachOptions(false)}>
+                <Text style={styles.actionCancelText}>Cancelar</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </TouchableOpacity>
+      </View>
+    )}
+    </View>
   );
 }
 
@@ -438,4 +872,75 @@ const styles = StyleSheet.create({
   sendBtnDisabled: { opacity: 0.5, backgroundColor: COLORS.border },
   emptyChat: { alignItems: 'center', paddingTop: 80, gap: 10 },
   emptyChatText: { fontSize: 14, color: COLORS.textSecondary, textAlign: 'center', lineHeight: 20 },
+  headerOptionsBtn: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center' },
+  modalOverlay: {
+    flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end',
+  },
+  actionSheet: {
+    backgroundColor: COLORS.surface, borderTopLeftRadius: 16, borderTopRightRadius: 16,
+  },
+  actionSheetHeader: {
+    padding: 16, borderBottomWidth: 1, borderBottomColor: COLORS.borderLight, alignItems: 'center',
+  },
+  actionSheetTitle: { fontSize: 16, fontWeight: '700', color: COLORS.text },
+  actionOption: {
+    flexDirection: 'row', alignItems: 'center', padding: 16, gap: 12, borderBottomWidth: 1, borderBottomColor: COLORS.borderLight,
+  },
+  actionOptionText: { fontSize: 16, color: COLORS.text, fontWeight: '500' },
+  actionSheetFooter: { padding: 16 },
+  actionCancelBtn: {
+    backgroundColor: COLORS.background, padding: 14, borderRadius: 8, alignItems: 'center',
+  },
+  actionCancelText: { fontSize: 16, fontWeight: '600', color: COLORS.textSecondary },
+  chatImage: {
+    width: 220,
+    height: 280,
+    borderRadius: 12,
+  },
+  fileRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    padding: 6,
+  },
+  attachBtn: {
+    width: 38,
+    height: 38,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  previewBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: COLORS.surface,
+    borderTopWidth: 1,
+    borderTopColor: COLORS.border,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    gap: 10,
+  },
+  previewImage: {
+    width: 64,
+    height: 64,
+    borderRadius: 8,
+    backgroundColor: COLORS.borderLight,
+  },
+  previewDoc: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: COLORS.background,
+    borderRadius: 8,
+    padding: 10,
+  },
+  previewDocName: {
+    flex: 1,
+    fontSize: 13,
+    color: COLORS.text,
+    fontWeight: '500',
+  },
+  previewCancel: {
+    padding: 4,
+  },
 });
