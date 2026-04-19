@@ -1,0 +1,30 @@
+{
+  "expo": {
+    "name": "MooveFretes Motorista",
+    "slug": "moovefretes-motorista",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.moovefretes.motorista"
+    },
+    "android": {
+      "package": "com.moovefretes.motorista",
+      "permissions": [
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION"
+      ]
+    },
+    "plugins": [
+      "expo-secure-store",
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "MooveFretes precisa da sua localização para mostrar fretes próximos."
+        }
+      ]
+    ],
+    "scheme": "moovefretes"
+  }
+}
