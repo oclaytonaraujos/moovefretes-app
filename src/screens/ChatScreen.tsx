@@ -56,15 +56,16 @@ export function ChatScreen() {
     }
 
     // Prepare the payload based on whether it's a freight or route
+    // We pass empty strings instead of null to bypass the broken 'sync_conversation_route_data' trigger in Supabase
     const payload: any = {
       participant1_id: user.id,
       participant2_id: otherUserId,
       source: source || 'direct',
       source_id: sourceId || null,
-      origin_city: originCity || null,
-      origin_state: originState || null,
-      destination_city: destinationCity || null,
-      destination_state: destinationState || null,
+      origin_city: originCity || '',
+      origin_state: originState || '',
+      destination_city: destinationCity || '',
+      destination_state: destinationState || '',
     };
 
     if (source === 'freight' && sourceId) {
@@ -88,14 +89,19 @@ export function ChatScreen() {
     }
 
     // Fallback: insert with minimal columns but still try to keep source info
-    // Some schemas might reject origin_city if not present in earlier migrations
+    // We pass empty strings instead of null for cities here as well to bypass the trigger again
     const { data: fallback, error: fallbackError } = await supabase
       .from('conversations')
       .insert({ 
         participant1_id: user.id, 
         participant2_id: otherUserId,
         source: source || 'direct',
-        freight_id: source === 'freight' ? sourceId : null
+        source_id: sourceId || null,
+        freight_id: source === 'freight' ? sourceId : null,
+        origin_city: originCity || '',
+        origin_state: originState || '',
+        destination_city: destinationCity || '',
+        destination_state: destinationState || '',
       })
       .select('id')
       .single();
@@ -409,4 +415,27 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 6,
     borderTopWidth: 1,
-    borderTopColor: COLORS.bor
+    borderTopColor: COLORS.border,
+  },
+  input: {
+    flex: 1,
+    minHeight: 38,
+    maxHeight: 100,
+    backgroundColor: COLORS.background,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    fontSize: 14,
+    color: COLORS.text,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  sendBtn: {
+    width: 38, height: 38, borderRadius: 10,
+    backgroundColor: COLORS.primary,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  sendBtnDisabled: { opacity: 0.5, backgroundColor: COLORS.border },
+  emptyChat: { alignItems: 'center', paddingTop: 80, gap: 10 },
+  emptyChatText: { fontSize: 14, color: COLORS.textSecondary, textAlign: 'center', lineHeight: 20 },
+});
