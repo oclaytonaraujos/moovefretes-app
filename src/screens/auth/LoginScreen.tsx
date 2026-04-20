@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, StyleSheet,
-  KeyboardAvoidingView, Platform, ScrollView, Alert, ActivityIndicator,
+  KeyboardAvoidingView, Platform, ScrollView, Alert, ActivityIndicator, Image,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../contexts/AuthContext';
@@ -72,17 +72,12 @@ export function LoginScreen() {
   return (
     <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
       <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
-        <View style={styles.header}>
-          <View style={styles.logoContainer}>
-            <Ionicons name="truck" size={40} color="#fff" />
-          </View>
-          <Text style={styles.title}>MooveFretes</Text>
-          <Text style={styles.subtitle}>Área do Motorista</Text>
-        </View>
 
-        <View style={styles.form}>
-          <Text style={styles.welcome}>Bem-vindo de volta!</Text>
-          <Text style={styles.welcomeSub}>Entre com suas credenciais para acessar o painel.</Text>
+        <View style={styles.mainArea}>
+          <Image source={require('../../../assets/logo.png')} style={styles.logoImage} resizeMode="contain" />
+
+          <View style={styles.form}>
+          <Text style={styles.welcome}>Área do Motorista</Text>
 
           <View style={styles.inputGroup}>
             <Text style={styles.label}>E-mail</Text>
@@ -154,44 +149,31 @@ export function LoginScreen() {
               </>
             )}
           </TouchableOpacity>
+          </View>
         </View>
 
-        <Text style={styles.footer}>
-          Apenas para motoristas cadastrados.{'\n'}Entre em contato com o suporte se precisar de ajuda.
-        </Text>
+        <Text style={styles.footer} numberOfLines={1} adjustsFontSizeToFit>© 2026 • Desenvolvido por Amplie Marketing. Todos os direitos reservados.</Text>
       </ScrollView>
     </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
-  flex: { flex: 1, backgroundColor: COLORS.primary },
+  flex: { flex: 1, backgroundColor: '#fff' },
   container: {
     flexGrow: 1,
+    paddingHorizontal: 24,
+    paddingBottom: 24,
+  },
+  mainArea: {
+    flex: 1,
     justifyContent: 'center',
-    padding: 24,
-    gap: 24,
-  },
-  header: {
     alignItems: 'center',
-    gap: 8,
+    gap: 40,
   },
-  logoContainer: {
-    width: 80,
-    height: 80,
-    borderRadius: 24,
-    backgroundColor: 'rgba(255,255,255,0.15)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 2,
-    borderColor: 'rgba(255,255,255,0.3)',
-    marginBottom: 4,
-  },
-  title: {
-    fontSize: 28,
-    fontWeight: '800',
-    color: '#fff',
-    letterSpacing: -0.5,
+  logoImage: {
+    width: 280,
+    height: 64,
   },
   subtitle: {
     fontSize: 14,
@@ -199,25 +181,14 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   form: {
-    backgroundColor: '#fff',
-    borderRadius: 20,
-    padding: 24,
     gap: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.15,
-    shadowRadius: 20,
-    elevation: 10,
+    alignSelf: 'stretch',
   },
   welcome: {
     fontSize: 20,
     fontWeight: '700',
     color: COLORS.text,
-  },
-  welcomeSub: {
-    fontSize: 13,
-    color: COLORS.textSecondary,
-    marginTop: -8,
+    textAlign: 'center',
   },
   inputGroup: { gap: 6 },
   label: {
@@ -264,8 +235,7 @@ const styles = StyleSheet.create({
   },
   footer: {
     textAlign: 'center',
-    fontSize: 12,
-    color: 'rgba(255,255,255,0.6)',
-    lineHeight: 18,
+    fontSize: 9,
+    color: 'rgba(0,0,0,0.35)',
   },
 });

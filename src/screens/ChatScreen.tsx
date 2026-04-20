@@ -288,10 +288,19 @@ export function ChatScreen() {
 
     await supabase.from('conversations').update({ last_message_at: now }).eq('id', convId);
 
-    setSending(false);
     if (!error && data) {
       setMessages(prev => [...prev, data]);
+      const senderName = (user as any)?.profile?.name || (user as any)?.driver?.name || 'Motorista';
+      await supabase.from('notifications').insert({
+        user_id: otherUserId,
+        type: 'message',
+        title: `Nova mensagem de ${senderName}`,
+        message: content,
+        related_id: convId,
+        is_read: false,
+      });
     }
+    setSending(false);
   }
 
   const processAttachment = async (uri: string, name: string, mimeType: string) => {
@@ -351,11 +360,20 @@ export function ChatScreen() {
         .single();
 
       if (msgError) {
-        Alert.alert('Erro', `N\u00e3o foi poss\u00edvel salvar a mensagem: ${msgError.message}`);
+        Alert.alert('Erro', `Não foi possível salvar a mensagem: ${msgError.message}`);
       } else {
         await supabase.from('conversations').update({ last_message_at: now }).eq('id', convId);
         setMessages(prev => [...prev, msgData]);
         setPendingAttachment(null);
+        const senderName = (user as any)?.profile?.name || (user as any)?.driver?.name || 'Motorista';
+        await supabase.from('notifications').insert({
+          user_id: otherUserId,
+          type: 'message',
+          title: `Nova mensagem de ${senderName}`,
+          message: name,
+          related_id: convId,
+          is_read: false,
+        });
       }
     } catch(e: any) {
       console.error(e);

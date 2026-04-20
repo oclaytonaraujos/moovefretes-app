@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity,
   RefreshControl, ActivityIndicator, Modal, ScrollView,
@@ -6,7 +6,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useRoute } from '@react-navigation/native';
 import { useAuth } from '../contexts/AuthContext';
 import { COLORS } from '../utils/constants';
 import { useFreights } from '../hooks/useFreights';
@@ -64,6 +64,14 @@ export function FreightsScreen() {
   const [showFilter, setShowFilter] = useState(false);
   const [filters, setFilters] = useState<FilterState>(DEFAULT_FILTERS);
   const [pending, setPending] = useState<FilterState>(DEFAULT_FILTERS);
+  const route = useRoute<any>();
+
+  useEffect(() => {
+    const originCity = route.params?.originCity;
+    if (originCity) {
+      setFilters(prev => ({ ...prev, originCity }));
+    }
+  }, [route.params?.originCity]);
 
   const driver = user?.driver;
 
@@ -160,6 +168,20 @@ export function FreightsScreen() {
           )}
         </TouchableOpacity>
       </View>
+
+      <AppliedFiltersBar 
+        filters={filters} 
+        onRemove={(key, val) => {
+          if (key === 'vehicleTypes' || key === 'bodyTypes') {
+            setFilters(prev => ({ ...prev, [key]: (prev[key] as string[]).filter(v => v !== val) }));
+          } else if (key === 'hasTracker' || key === 'hasPrice' || key === 'occupancy') {
+            setFilters(prev => ({ ...prev, [key]: 'ambos' }));
+          } else {
+            setFilters(prev => ({ ...prev, [key]: '' }));
+          }
+        }}
+        onClearAll={() => setFilters(DEFAULT_FILTERS)}
+      />
 
       {loading ? (
         <ActivityIndicator size="large" color={COLORS.primary} style={{ flex: 1 }} />
@@ -353,6 +375,8 @@ function FilterSection({ title, children, last }: { title: string; children: Rea
   );
 }
 
+
+
 function ChipGroup({ items, selected, onToggle }: { items: string[]; selected: string[]; onToggle: (v: string) => void }) {
   return (
     <View style={styles.chipRow}>
@@ -474,6 +498,32 @@ const styles = StyleSheet.create({
   radioDotActive: { borderColor: COLORS.primary, backgroundColor: COLORS.primary },
   radioLabel: { fontSize: 12, color: COLORS.textSecondary, fontWeight: '500', flex: 1 },
   radioLabelActive: { color: COLORS.primary, fontWeight: '600' },
+  appliedFiltersBar: {
+    backgroundColor: COLORS.surface,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.border,
+    paddingVertical: 10,
+  },
+  appliedFiltersScroll: {
+    paddingHorizontal: 16,
+    gap: 8,
+  },
+  appliedFilterChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: COLORS.primary + '12',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: COLORS.primary + '30',
+    gap: 6,
+  },
+  appliedFilterLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: COLORS.primary,
+  },
   applyBtn: {
     marginHorizontal: 20, marginTop: 8,
     backgroundColor: COLORS.primary, borderRadius: 14,
@@ -481,3 +531,45 @@ const styles = StyleSheet.create({
   },
   applyText: { color: '#fff', fontSize: 16, fontWeight: '700' },
 });
+
+function AppliedFiltersBar({ filters, onRemove, onClearAll }: { 
+  filters: FilterState; 
+  onRemove: (key: keyof FilterState, val?: string) => void;
+  onClearAll: () => void;
+}) {
+  const active = useMemo(() => {
+    const items: { key: keyof FilterState; label: string; val?: string }[] = [];
+    if (filters.originCity.trim()) items.push({ key: 'originCity', label: `Origem: ${filters.originCity}` });
+    if (filters.destinationCity.trim()) items.push({ key: 'destinationCity', label: `Destino: ${filters.destinationCity}` });
+    filters.vehicleTypes.forEach(v => items.push({ key: 'vehicleTypes', val: v, label: v }));
+    filters.bodyTypes.forEach(b => items.push({ key: 'bodyTypes', val: b, label: b }));
+    if (filters.hasTracker !== 'ambos') items.push({ key: 'hasTracker', label: filters.hasTracker === 'sim' ? 'Com rastreador' : 'Sem rastreador' });
+    if (filters.hasPrice !== 'ambos') items.push({ key: 'hasPrice', label: filters.hasPrice === 'sim' ? 'Com valor' : 'A combinar' });
+    if (filters.occupancy !== 'ambos') items.push({ key: 'occupancy', label: filters.occupancy === 'completa' ? 'Carga Completa' : 'Complemento' });
+    return items;
+  }, [filters]);
+
+  if (active.length === 0) return null;
+
+  return (
+    <View style={styles.appliedFiltersBar}>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.appliedFiltersScroll}>
+        {active.length > 1 && (
+          <TouchableOpacity 
+            style={[styles.appliedFilterChip, { backgroundColor: COLORS.danger + '12', borderColor: COLORS.danger + '30' }]} 
+            onPress={onClearAll}
+          >
+            <Text style={[styles.appliedFilterLabel, { color: COLORS.danger }]}>Limpar Todos</Text>
+            <Ionicons name="trash-outline" size={16} color={COLORS.danger} />
+          </TouchableOpacity>
+        )}
+        {active.map((item, idx) => (
+          <TouchableOpacity key={`${item.key}-${item.val}-${idx}`} style={styles.appliedFilterChip} onPress={() => onRemove(item.key, item.val)}>
+            <Text style={styles.appliedFilterLabel}>{item.label}</Text>
+            <Ionicons name="close-circle" size={16} color={COLORS.primary} />
+          </TouchableOpacity>
+        ))}
+      </ScrollView>
+    </View>
+  );
+}

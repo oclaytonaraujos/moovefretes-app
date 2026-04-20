@@ -50,7 +50,6 @@ export function HomeScreen() {
   const profile = user?.profile;
   const currentStatus = driver?.available ? 'available' : 'offline';
   const statusColor = getAvailabilityColor(currentStatus);
-  const statusLabel = AVAILABILITY_LABELS[currentStatus] || currentStatus;
   const expiration = getExpirationInfo(driver?.current_location?.lastUpdated);
   const locationLabel = driver?.current_location?.city
     ? `${driver.current_location.city}, ${driver.current_location.state}`
@@ -192,8 +191,11 @@ export function HomeScreen() {
             onPress={() => setShowAvailabilityModal(true)}
             activeOpacity={0.75}
           >
-            <View style={[styles.statusDot, { backgroundColor: statusColor }]} />
-            <Text style={[styles.statusLabel, { color: statusColor }]}>{statusLabel}</Text>
+            <Ionicons 
+              name={currentStatus === 'available' ? 'checkmark-circle' : currentStatus === 'busy' ? 'time' : 'moon'} 
+              size={13} 
+              color={statusColor} 
+            />
             <View style={styles.btnDivider} />
             <Ionicons name="location-outline" size={12} color="rgba(255,255,255,0.85)" />
             <Text style={styles.locationBtnText} numberOfLines={1}>{locationLabel}</Text>
@@ -253,58 +255,44 @@ export function HomeScreen() {
                 <View style={styles.statsGridRow}>
                   <MiniStatCard 
                     icon="chatbubbles" 
-                    color={stats.unreadMessages > 0 ? COLORS.primary : COLORS.textSecondary} 
+                    color={COLORS.primary} 
                     label="Mensagens" 
                     value={stats.unreadMessages > 0 ? `${stats.unreadMessages} novas` : 'Lidas'} 
                     onPress={() => navigation.navigate('ChatTab')}
                   />
                   <MiniStatCard 
                     icon="search" 
-                    color={COLORS.available} 
+                    color={COLORS.primary} 
                     label="Fretes Perto" 
                     value={stats.nearbyFreights > 0 ? `${stats.nearbyFreights} na área` : 'Buscar'} 
-                    onPress={() => navigation.navigate('FreightsTab')}
+                    onPress={() => navigation.navigate('FreightsTab', { screen: 'FreightsList', params: { originCity: driver?.current_location?.city } })}
                   />
                 </View>
                 <View style={styles.statsGridRow}>
                   <MiniStatCard
                     icon="star"
-                    color={COLORS.gold}
+                    color={COLORS.primary}
                     label="Avaliação"
                     value={stats.rating > 0 ? stats.rating.toFixed(1) : '-'}
                   />
                   <MiniStatCard
                     icon="eye"
-                    color={COLORS.info || '#3b82f6'}
+                    color={COLORS.primary}
                     label="Visitas"
                     value={stats.profileViews > 0 ? `${stats.profileViews} visitas` : 'Sem visitas'}
                   />
                 </View>
-                <View style={styles.statsGridRow}>
-                  <MiniStatCard 
-                    icon="checkmark-circle" 
-                    color={COLORS.available} 
-                    label="Viagens" 
-                    value={String(stats.completedTrips)} 
-                  />
-                  {stats.cnhDaysLeft !== null && stats.cnhDaysLeft < 30 ? (
+                {stats.cnhDaysLeft !== null && stats.cnhDaysLeft < 30 && (
+                  <View style={styles.statsGridRow}>
                     <MiniStatCard 
                       icon="warning" 
-                      color={COLORS.danger} 
+                      color={COLORS.primary} 
                       label="CNH Vence em" 
                       value={`${stats.cnhDaysLeft} dias`} 
                       onPress={() => navigation.navigate('ProfileTab')}
                     />
-                  ) : (
-                    <MiniStatCard 
-                      icon="cash-outline" 
-                      color={COLORS.primary} 
-                      label="Ganhos Totais" 
-                      value={formatCurrency(stats.totalEarnings)} 
-                      onPress={() => navigation.navigate('ProfileTab')}
-                    />
-                  )}
-                </View>
+                  </View>
+                )}
               </View>
             </View>
 
@@ -331,11 +319,15 @@ export function HomeScreen() {
 
             <View style={styles.section}>
               <Text style={styles.sectionTitle}>Acesso Rápido</Text>
-              <View style={styles.quickActions}>
-                <QuickAction icon="map-outline" label="Minhas Rotas" onPress={() => navigation.navigate('RoutesTab')} color={COLORS.primary} />
-                <QuickAction icon="chatbubbles-outline" label="Mensagens" onPress={() => navigation.navigate('ChatTab')} color="#3b82f6" />
-                <QuickAction icon="person-outline" label="Meu Perfil" onPress={() => navigation.navigate('ProfileTab')} color={COLORS.orange} />
-                <QuickAction icon="search-outline" label="Ver Fretes" onPress={() => navigation.navigate('FreightsTab')} color={COLORS.available} />
+              <View style={{ gap: 10 }}>
+                <View style={styles.quickActionsRow}>
+                  <QuickAction icon="map-outline" label="Minhas Rotas" onPress={() => navigation.navigate('RoutesTab')} color={COLORS.primary} />
+                  <QuickAction icon="chatbubbles-outline" label="Mensagens" onPress={() => navigation.navigate('ChatTab')} color={COLORS.primary} />
+                </View>
+                <View style={styles.quickActionsRow}>
+                  <QuickAction icon="person-outline" label="Meu Perfil" onPress={() => navigation.navigate('ProfileTab')} color={COLORS.primary} />
+                  <QuickAction icon="search-outline" label="Ver Fretes" onPress={() => navigation.navigate('FreightsTab')} color={COLORS.primary} />
+                </View>
               </View>
             </View>
           </>
@@ -382,14 +374,14 @@ function ActiveFreightCard({ freight, onPress }: { freight: Freight; onPress: ()
       </View>
       <View style={activeStyles.route}>
         <View style={activeStyles.locationRow}>
-          <Ionicons name="radio-button-on" size={14} color={COLORS.available} />
+          <Ionicons name="radio-button-on" size={14} color="#fff" />
           <Text style={activeStyles.locationText}>{formatLocation(freight.origin)}</Text>
         </View>
         <View style={activeStyles.progressBar}>
-          <View style={[activeStyles.progressFill, { width: `${progress}%` as any }]} />
+          <View style={[activeStyles.progressFill, { width: `${progress}%` as any, backgroundColor: '#fff' }]} />
         </View>
         <View style={activeStyles.locationRow}>
-          <Ionicons name="location" size={14} color={COLORS.danger} />
+          <Ionicons name="location" size={14} color="#fff" />
           <Text style={activeStyles.locationText}>{formatLocation(freight.destination)}</Text>
         </View>
       </View>
@@ -582,13 +574,16 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
   },
   avatar: {
-    width: 80, height: 80, borderRadius: 40,
+    width: 80, height: 80, borderRadius: 16,
     backgroundColor: 'rgba(255,255,255,0.2)',
-    borderWidth: 1, borderColor: 'rgba(255,255,255,0.3)',
+    borderWidth: 2, borderColor: COLORS.primaryDark,
     alignItems: 'center', justifyContent: 'center',
     alignSelf: 'flex-start', marginBottom: 10,
   },
-  avatarImg: { width: 80, height: 80, borderRadius: 40 },
+  avatarImg: { 
+    width: 80, height: 80, borderRadius: 16,
+    borderWidth: 2, borderColor: COLORS.primaryDark 
+  },
   avatarInitial: { fontSize: 32, fontWeight: '700', color: '#fff' },
   headerLeft: { flex: 1, gap: 6, marginRight: 12 },
   greeting: { fontSize: 22, fontWeight: '800', color: '#fff' },
@@ -604,8 +599,7 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     alignSelf: 'flex-start',
   },
-  statusDot: { width: 7, height: 7, borderRadius: 4 },
-  statusLabel: { fontSize: 12, fontWeight: '700' },
+
   btnDivider: { width: 1, height: 12, backgroundColor: 'rgba(255,255,255,0.3)', marginHorizontal: 2 },
   locationBtnText: { fontSize: 12, color: 'rgba(255,255,255,0.9)', fontWeight: '500', flexShrink: 1 },
   expirationBtnText: { fontSize: 11, color: 'rgba(255,255,255,0.7)' },
@@ -619,7 +613,7 @@ const styles = StyleSheet.create({
   content: { padding: 16, gap: 16, paddingBottom: 32 },
   summaryContainer: { gap: 12 },
   mainEarningsCard: {
-    backgroundColor: '#059669', // Emerald 600
+    backgroundColor: COLORS.primary,
     borderRadius: 16,
     padding: 16,
     flexDirection: 'row',
@@ -663,7 +657,7 @@ const styles = StyleSheet.create({
   sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   sectionTitle: { fontSize: 16, fontWeight: '700', color: COLORS.text },
   seeAll: { fontSize: 13, color: COLORS.primary, fontWeight: '600' },
-  quickActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  quickActionsRow: { flexDirection: 'row', gap: 10 },
 });
 
 const statStyles = StyleSheet.create({
@@ -682,15 +676,15 @@ const statStyles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: COLORS.surface,
     borderRadius: 12,
-    padding: 10,
+    padding: 14,
     gap: 10,
     borderWidth: 1,
     borderColor: COLORS.border,
   },
   miniIconWrap: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    width: 40,
+    height: 40,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -715,13 +709,13 @@ const activeStyles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start',
     backgroundColor: 'rgba(255,255,255,0.15)', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 100,
   },
-  dot: { width: 6, height: 6, borderRadius: 3, backgroundColor: COLORS.available },
+  dot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#fff' },
   badgeText: { color: '#fff', fontSize: 12, fontWeight: '600' },
   route: { gap: 6 },
   locationRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   locationText: { color: '#fff', fontWeight: '600', fontSize: 14 },
   progressBar: { height: 4, backgroundColor: 'rgba(255,255,255,0.2)', borderRadius: 2, marginLeft: 22 },
-  progressFill: { height: '100%', backgroundColor: COLORS.available, borderRadius: 2 },
+  progressFill: { height: '100%', backgroundColor: '#fff', borderRadius: 2 },
   footer: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   price: { color: '#fff', fontWeight: '800', fontSize: 18 },
   company: { color: 'rgba(255,255,255,0.7)', fontSize: 12 },
@@ -729,11 +723,11 @@ const activeStyles = StyleSheet.create({
 
 const qaStyles = StyleSheet.create({
   item: {
-    width: '47%', backgroundColor: COLORS.surface, borderRadius: 12,
-    padding: 14, alignItems: 'center', gap: 8,
+    flex: 1, backgroundColor: COLORS.surface, borderRadius: 12,
+    padding: 14, alignItems: 'center', gap: 10,
     borderWidth: 1, borderColor: COLORS.border,
   },
-  icon: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center' },
+  icon: { width: 40, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
   label: { fontSize: 12, fontWeight: '600', color: COLORS.text, textAlign: 'center' },
 });
 

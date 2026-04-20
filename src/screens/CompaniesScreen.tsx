@@ -34,6 +34,7 @@ interface FilterState {
   verified: 'todos' | 'sim' | 'nao';
   minRating: '' | '2' | '3' | '4';
   city: string;
+  onlyFavorites: boolean;
 }
 
 const DEFAULT_FILTERS: FilterState = {
@@ -41,6 +42,7 @@ const DEFAULT_FILTERS: FilterState = {
   verified: 'todos',
   minRating: '',
   city: '',
+  onlyFavorites: false,
 };
 
 function countActiveFilters(f: FilterState): number {
@@ -49,6 +51,7 @@ function countActiveFilters(f: FilterState): number {
   if (f.verified !== 'todos') n++;
   if (f.minRating !== '') n++;
   if (f.city.trim()) n++;
+  if (f.onlyFavorites) n++;
   return n;
 }
 
@@ -173,13 +176,14 @@ export function CompaniesScreen() {
   }
 
   const filtered = useMemo(() => companies.filter(c => {
+    if (filters.onlyFavorites && !favorites.has(c.id)) return false;
     if (filters.companyTypes.length > 0 && !filters.companyTypes.includes(c.company_type)) return false;
     if (filters.verified === 'sim' && !c.verified) return false;
     if (filters.verified === 'nao' && c.verified) return false;
     if (filters.minRating !== '' && (c.rating || 0) < Number(filters.minRating)) return false;
     if (filters.city.trim() && !c.city?.toLowerCase().includes(filters.city.toLowerCase())) return false;
     return true;
-  }), [companies, filters]);
+  }), [companies, filters, favorites]);
 
   const activeCount = countActiveFilters(filters);
 
@@ -203,6 +207,22 @@ export function CompaniesScreen() {
         </TouchableOpacity>
       </View>
 
+      <AppliedFiltersBar 
+        filters={filters} 
+        onRemove={(key, val) => {
+          if (key === 'companyTypes') {
+            setFilters(prev => ({ ...prev, companyTypes: prev.companyTypes.filter(v => v !== val) }));
+          } else if (key === 'verified') {
+            setFilters(prev => ({ ...prev, verified: 'todos' }));
+          } else if (key === 'onlyFavorites') {
+            setFilters(prev => ({ ...prev, onlyFavorites: false }));
+          } else {
+            setFilters(prev => ({ ...prev, [key]: '' }));
+          }
+        }}
+        onClearAll={() => setFilters(DEFAULT_FILTERS)}
+      />
+
       {loading ? (
         <ActivityIndicator size="large" color={COLORS.primary} style={{ flex: 1 }} />
       ) : (
@@ -214,8 +234,6 @@ export function CompaniesScreen() {
           renderItem={({ item }) => (
             <CompanyCard
               company={item}
-              isFavorite={favorites.has(item.id)}
-              onFavorite={() => toggleFavorite(item.id)}
               onPress={() => navigation.navigate('CompanyDetail', { company: item })}
               onChat={() => navigation.navigate('Chat', {
                 userId: item.user_id,
@@ -296,7 +314,7 @@ export function CompaniesScreen() {
                 </View>
               </FilterSection>
 
-              <FilterSection title="Avaliação mínima" last>
+              <FilterSection title="Avaliação mínima">
                 <View style={styles.radioRow}>
                   {([['', 'Todas'], ['4', '4+ ★'], ['3', '3+ ★'], ['2', '2+ ★']] as [string, string][]).map(([val, label]) => (
                     <RadioOpt
@@ -306,6 +324,16 @@ export function CompaniesScreen() {
                       onPress={() => setPending(p => ({ ...p, minRating: val as FilterState['minRating'] }))}
                     />
                   ))}
+                </View>
+              </FilterSection>
+
+              <FilterSection title="Favoritas" last>
+                <View style={styles.radioRow}>
+                  <RadioOpt 
+                    label="Mostrar apenas favoritas" 
+                    selected={pending.onlyFavorites} 
+                    onPress={() => setPending(p => ({ ...p, onlyFavorites: !p.onlyFavorites }))} 
+                  />
                 </View>
               </FilterSection>
             </ScrollView>
@@ -338,10 +366,8 @@ function RadioOpt({ label, selected, onPress }: { label: string; selected: boole
   );
 }
 
-function CompanyCard({ company, isFavorite, onFavorite, onPress, onChat, onWhatsApp }: {
+function CompanyCard({ company, onPress, onChat, onWhatsApp }: {
   company: Company;
-  isFavorite: boolean;
-  onFavorite: () => void;
   onPress: () => void;
   onChat: () => void;
   onWhatsApp: () => void;
@@ -389,14 +415,6 @@ function CompanyCard({ company, isFavorite, onFavorite, onPress, onChat, onWhats
 
         {/* Right: actions */}
         <View style={cardStyles.rightCol}>
-          <TouchableOpacity style={cardStyles.favBtn} onPress={onFavorite}>
-            <Ionicons
-              name={isFavorite ? 'heart' : 'heart-outline'}
-              size={20}
-              color={isFavorite ? '#ef4444' : COLORS.textLight}
-            />
-          </TouchableOpacity>
-
           <View style={cardStyles.buttonsGroup}>
             <TouchableOpacity style={cardStyles.chatBtn} onPress={onChat}>
               <Ionicons name="chatbubble-outline" size={14} color="#fff" />
@@ -487,7 +505,73 @@ const styles = StyleSheet.create({
     height: 50, alignItems: 'center', justifyContent: 'center',
   },
   applyText: { color: '#fff', fontSize: 16, fontWeight: '700' },
+  appliedFiltersBar: {
+    backgroundColor: COLORS.surface,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.border,
+    paddingVertical: 10,
+  },
+  appliedFiltersScroll: {
+    paddingHorizontal: 16,
+    gap: 8,
+  },
+  appliedFilterChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: COLORS.primary + '12',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: COLORS.primary + '30',
+    gap: 6,
+  },
+  appliedFilterLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: COLORS.primary,
+  },
 });
+
+function AppliedFiltersBar({ filters, onRemove, onClearAll }: { 
+  filters: FilterState; 
+  onRemove: (key: keyof FilterState, val?: string) => void;
+  onClearAll: () => void;
+}) {
+  const active = useMemo(() => {
+    const items: { key: keyof FilterState; label: string; val?: string }[] = [];
+    filters.companyTypes.forEach(t => items.push({ key: 'companyTypes', val: t, label: TYPE_LABELS[t] || t }));
+    if (filters.city.trim()) items.push({ key: 'city', label: `Cidade: ${filters.city}` });
+    if (filters.verified !== 'todos') items.push({ key: 'verified', label: filters.verified === 'sim' ? 'Verificadas' : 'Não verificadas' });
+    if (filters.minRating !== '') items.push({ key: 'minRating', label: `${filters.minRating}+ ★` });
+    if (filters.onlyFavorites) items.push({ key: 'onlyFavorites', label: 'Favoritas' });
+    return items;
+  }, [filters]);
+
+  if (active.length === 0) return null;
+
+  return (
+    <View style={styles.appliedFiltersBar}>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.appliedFiltersScroll}>
+        {active.length > 1 && (
+          <TouchableOpacity 
+            style={[styles.appliedFilterChip, { backgroundColor: COLORS.danger + '12', borderColor: COLORS.danger + '30' }]} 
+            onPress={onClearAll}
+          >
+            <Text style={[styles.appliedFilterLabel, { color: COLORS.danger }]}>Limpar Todos</Text>
+            <Ionicons name="trash-outline" size={16} color={COLORS.danger} />
+          </TouchableOpacity>
+        )}
+        {active.map((item, idx) => (
+          <TouchableOpacity key={`${item.key}-${item.val}-${idx}`} style={styles.appliedFilterChip} onPress={() => onRemove(item.key, item.val)}>
+            <Text style={styles.appliedFilterLabel}>{item.label}</Text>
+            <Ionicons name="close-circle" size={16} color={COLORS.primary} />
+          </TouchableOpacity>
+        ))}
+      </ScrollView>
+    </View>
+  );
+}
 
 const cardStyles = StyleSheet.create({
   card: {
@@ -499,7 +583,7 @@ const cardStyles = StyleSheet.create({
   },
   row: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     gap: 12,
   },
   info: {
