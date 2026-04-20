@@ -32,7 +32,16 @@ export function HomeScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [activeFreight, setActiveFreight] = useState<Freight | null>(null);
   const [recentFreights, setRecentFreights] = useState<Freight[]>([]);
-  const [stats, setStats] = useState({ totalEarnings: 0, completedTrips: 0, rating: 0 });
+  const [stats, setStats] = useState({
+    totalEarnings: 0,
+    monthlyEarnings: 0,
+    completedTrips: 0,
+    rating: 0,
+    nearbyFreights: 0,
+    unreadMessages: 0,
+    profileViews: 0,
+    cnhDaysLeft: null as number | null,
+  });
   const [loading, setLoading] = useState(true);
   const [showAvailabilityModal, setShowAvailabilityModal] = useState(false);
   const [avatarError, setAvatarError] = useState(false);
@@ -50,6 +59,7 @@ export function HomeScreen() {
   const load = useCallback(async () => {
     if (!user) return;
     try {
+      // 1. Fretes em andamento e recentes
       const [activeRes, recentRes] = await Promise.all([
         supabase
           .from('freights')
@@ -74,12 +84,76 @@ export function HomeScreen() {
       const recent = (recentRes.data || []).map(row => mapSupabaseFreight(row, profiles.get(row.publisher_id)));
       setRecentFreights(recent);
 
+      // 2. Ganhos do Mês
+      const startOfMonth = new Date();
+      startOfMonth.setDate(1);
+      startOfMonth.setHours(0, 0, 0, 0);
+
+      const { data: monthlyFreights } = await supabase
+        .from('freights')
+        .select('value_estimate')
+        .eq('accepted_driver_id', user.id)
+        .eq('status', 'completed')
+        .gte('updated_at', startOfMonth.toISOString());
+
+      const monthlyEarnings = (monthlyFreights || []).reduce((sum, f) => sum + (Number(f.value_estimate) || 0), 0);
+
+      // 3. Fretes Próximos (Cidade Atual)
+      let nearbyFreights = 0;
+      if (driver?.current_location?.city) {
+        const { count } = await supabase
+          .from('freights')
+          .select('*', { count: 'exact', head: true })
+          .eq('status', 'active')
+          .eq('origin_city', driver.current_location.city)
+          .eq('origin_state', driver.current_location.state);
+        nearbyFreights = count || 0;
+      }
+
+      // 4. Mensagens Não Lidas
+      const { data: myConvs } = await supabase
+        .from('conversations')
+        .select('id')
+        .or(`participant1_id.eq.${user.id},participant2_id.eq.${user.id}`);
+
+      let unreadMessages = 0;
+      if (myConvs && myConvs.length > 0) {
+        const convIds = myConvs.map(c => c.id);
+        const { count } = await supabase
+          .from('messages')
+          .select('*', { count: 'exact', head: true })
+          .in('conversation_id', convIds)
+          .neq('sender_id', user.id)
+          .eq('is_read', false);
+        unreadMessages = count || 0;
+      }
+
+      // 5. CNH Expiry
+      let cnhDaysLeft = null;
+      if (driver?.cnh_expiry) {
+        const expiry = new Date(driver.cnh_expiry);
+        const diff = expiry.getTime() - Date.now();
+        cnhDaysLeft = Math.ceil(diff / (1000 * 60 * 60 * 24));
+      }
+
+      // 6. Visualizações de Perfil
+      const { count: profileViews } = await supabase
+        .from('profile_views')
+        .select('*', { count: 'exact', head: true })
+        .eq('target_id', user.id);
+
       const completedTrips = driver?.completed_trips || 0;
       const totalEarnings = profile?.total_earnings ?? recent.reduce((s: number, f: Freight) => s + (Number(f.price) || 0), 0);
+
       setStats({
         totalEarnings,
+        monthlyEarnings,
         completedTrips,
         rating: profile?.rating || driver?.rating || 0,
+        nearbyFreights,
+        unreadMessages,
+        profileViews: profileViews || 0,
+        cnhDaysLeft,
       });
     } finally {
       setLoading(false);
@@ -158,10 +232,80 @@ export function HomeScreen() {
           <ActivityIndicator size="large" color={COLORS.primary} style={{ marginTop: 40 }} />
         ) : (
           <>
-            <View style={styles.statsRow}>
-              <StatCard icon="star" iconColor={COLORS.gold} label="Avaliação" value={stats.rating > 0 ? stats.rating.toFixed(1) : '-'} />
-              <StatCard icon="checkmark-circle" iconColor={COLORS.available} label="Viagens" value={String(stats.completedTrips)} />
-              <StatCard icon="cash" iconColor={COLORS.primary} label="Ganhos" value={stats.totalEarnings > 0 ? formatCurrency(stats.totalEarnings) : '-'} small />
+            <View style={styles.summaryContainer}>
+              <View style={styles.mainEarningsCard}>
+                <View style={styles.earningsIcon}>
+                  <Ionicons name="wallet-outline" size={24} color="#fff" />
+                </View>
+                <View>
+                  <Text style={styles.monthlyLabel}>Ganhos do Mês</Text>
+                  <Text style={styles.monthlyValue}>{formatCurrency(stats.monthlyEarnings)}</Text>
+                </View>
+                <TouchableOpacity 
+                  style={styles.earningsDetailBtn}
+                  onPress={() => navigation.navigate('ProfileTab')}
+                >
+                  <Ionicons name="chevron-forward" size={20} color="rgba(255,255,255,0.7)" />
+                </TouchableOpacity>
+              </View>
+
+              <View style={styles.statsGrid}>
+                <View style={styles.statsGridRow}>
+                  <MiniStatCard 
+                    icon="chatbubbles" 
+                    color={stats.unreadMessages > 0 ? COLORS.primary : COLORS.textSecondary} 
+                    label="Mensagens" 
+                    value={stats.unreadMessages > 0 ? `${stats.unreadMessages} novas` : 'Lidas'} 
+                    onPress={() => navigation.navigate('ChatTab')}
+                  />
+                  <MiniStatCard 
+                    icon="search" 
+                    color={COLORS.available} 
+                    label="Fretes Perto" 
+                    value={stats.nearbyFreights > 0 ? `${stats.nearbyFreights} na área` : 'Buscar'} 
+                    onPress={() => navigation.navigate('FreightsTab')}
+                  />
+                </View>
+                <View style={styles.statsGridRow}>
+                  <MiniStatCard
+                    icon="star"
+                    color={COLORS.gold}
+                    label="Avaliação"
+                    value={stats.rating > 0 ? stats.rating.toFixed(1) : '-'}
+                  />
+                  <MiniStatCard
+                    icon="eye"
+                    color={COLORS.info || '#3b82f6'}
+                    label="Visitas"
+                    value={stats.profileViews > 0 ? `${stats.profileViews} visitas` : 'Sem visitas'}
+                  />
+                </View>
+                <View style={styles.statsGridRow}>
+                  <MiniStatCard 
+                    icon="checkmark-circle" 
+                    color={COLORS.available} 
+                    label="Viagens" 
+                    value={String(stats.completedTrips)} 
+                  />
+                  {stats.cnhDaysLeft !== null && stats.cnhDaysLeft < 30 ? (
+                    <MiniStatCard 
+                      icon="warning" 
+                      color={COLORS.danger} 
+                      label="CNH Vence em" 
+                      value={`${stats.cnhDaysLeft} dias`} 
+                      onPress={() => navigation.navigate('ProfileTab')}
+                    />
+                  ) : (
+                    <MiniStatCard 
+                      icon="cash-outline" 
+                      color={COLORS.primary} 
+                      label="Ganhos Totais" 
+                      value={formatCurrency(stats.totalEarnings)} 
+                      onPress={() => navigation.navigate('ProfileTab')}
+                    />
+                  )}
+                </View>
+              </View>
             </View>
 
             {activeFreight && (
@@ -255,6 +399,29 @@ function ActiveFreightCard({ freight, onPress }: { freight: Freight; onPress: ()
           <Text style={activeStyles.company}>{freight.company_name || 'Embarcador'}</Text>
         </View>
       )}
+    </TouchableOpacity>
+  );
+}
+
+function MiniStatCard({ icon, color, label, value, onPress }: {
+  icon: string; color: string; label: string; value: string; onPress?: () => void;
+}) {
+  return (
+    <TouchableOpacity 
+      style={statStyles.miniCard} 
+      onPress={onPress} 
+      disabled={!onPress}
+      activeOpacity={0.7}
+    >
+      <View style={[statStyles.miniIconWrap, { backgroundColor: color + '12' }]}>
+        <Ionicons name={icon as any} size={16} color={color} />
+      </View>
+      <View style={statStyles.miniContent}>
+        <Text style={statStyles.miniLabel}>{label}</Text>
+        <Text style={[statStyles.miniValue, { color: color === COLORS.textSecondary ? COLORS.text : color }]} numberOfLines={1}>
+          {value}
+        </Text>
+      </View>
     </TouchableOpacity>
   );
 }
@@ -449,8 +616,49 @@ const styles = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
     borderWidth: 1, borderColor: 'rgba(255,255,255,0.3)',
   },
-  content: { padding: 16, gap: 8, paddingBottom: 32 },
-  statsRow: { flexDirection: 'row', gap: 10, marginBottom: 4 },
+  content: { padding: 16, gap: 16, paddingBottom: 32 },
+  summaryContainer: { gap: 12 },
+  mainEarningsCard: {
+    backgroundColor: '#059669', // Emerald 600
+    borderRadius: 16,
+    padding: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 16,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+  },
+  earningsIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  monthlyLabel: {
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.8)',
+    fontWeight: '500',
+  },
+  monthlyValue: {
+    fontSize: 24,
+    fontWeight: '800',
+    color: '#fff',
+  },
+  earningsDetailBtn: {
+    marginLeft: 'auto',
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  statsGrid: { gap: 10 },
+  statsGridRow: { flexDirection: 'row', gap: 10 },
   section: { gap: 10 },
   sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   sectionTitle: { fontSize: 16, fontWeight: '700', color: COLORS.text },
@@ -467,6 +675,38 @@ const statStyles = StyleSheet.create({
   iconWrap: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
   value: { fontSize: 16, fontWeight: '800', color: COLORS.text },
   label: { fontSize: 11, color: COLORS.textSecondary, textAlign: 'center' },
+  // Mini cards
+  miniCard: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: COLORS.surface,
+    borderRadius: 12,
+    padding: 10,
+    gap: 10,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  miniIconWrap: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  miniContent: {
+    flex: 1,
+  },
+  miniLabel: {
+    fontSize: 10,
+    color: COLORS.textSecondary,
+    fontWeight: '500',
+  },
+  miniValue: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: COLORS.text,
+  },
 });
 
 const activeStyles = StyleSheet.create({

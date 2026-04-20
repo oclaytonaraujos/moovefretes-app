@@ -5,7 +5,10 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../contexts/AuthContext';
+import { supabase } from '../../lib/supabase';
 import { COLORS } from '../../utils/constants';
+
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export function LoginScreen() {
   const { signIn } = useAuth();
@@ -13,17 +16,56 @@ export function LoginScreen() {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [resetLoading, setResetLoading] = useState(false);
+  const [emailError, setEmailError] = useState('');
+  const [passwordError, setPasswordError] = useState('');
+
+  function validateFields(): boolean {
+    let valid = true;
+    if (!email.trim()) {
+      setEmailError('Informe seu e-mail.');
+      valid = false;
+    } else if (!EMAIL_REGEX.test(email.trim())) {
+      setEmailError('E-mail inválido.');
+      valid = false;
+    } else {
+      setEmailError('');
+    }
+    if (!password.trim()) {
+      setPasswordError('Informe sua senha.');
+      valid = false;
+    } else if (password.length < 6) {
+      setPasswordError('A senha deve ter no mínimo 6 caracteres.');
+      valid = false;
+    } else {
+      setPasswordError('');
+    }
+    return valid;
+  }
 
   async function handleLogin() {
-    if (!email.trim() || !password.trim()) {
-      Alert.alert('Atenção', 'Preencha e-mail e senha.');
-      return;
-    }
+    if (!validateFields()) return;
     setLoading(true);
     const { error } = await signIn(email.trim().toLowerCase(), password);
     setLoading(false);
     if (error) {
       Alert.alert('Erro ao entrar', 'E-mail ou senha incorretos. Verifique e tente novamente.');
+    }
+  }
+
+  async function handleForgotPassword() {
+    const trimmedEmail = email.trim().toLowerCase();
+    if (!trimmedEmail || !EMAIL_REGEX.test(trimmedEmail)) {
+      Alert.alert('Redefinir senha', 'Digite seu e-mail no campo acima antes de prosseguir.');
+      return;
+    }
+    setResetLoading(true);
+    const { error } = await supabase.auth.resetPasswordForEmail(trimmedEmail);
+    setResetLoading(false);
+    if (error) {
+      Alert.alert('Erro', 'Não foi possível enviar o e-mail. Tente novamente.');
+    } else {
+      Alert.alert('E-mail enviado', 'Verifique sua caixa de entrada para redefinir sua senha.');
     }
   }
 
@@ -44,32 +86,33 @@ export function LoginScreen() {
 
           <View style={styles.inputGroup}>
             <Text style={styles.label}>E-mail</Text>
-            <View style={styles.inputWrapper}>
-              <Ionicons name="mail-outline" size={18} color={COLORS.textSecondary} style={styles.inputIcon} />
+            <View style={[styles.inputWrapper, !!emailError && styles.inputWrapperError]}>
+              <Ionicons name="mail-outline" size={18} color={emailError ? COLORS.danger : COLORS.textSecondary} style={styles.inputIcon} />
               <TextInput
                 style={styles.input}
                 placeholder="seu@email.com"
                 placeholderTextColor={COLORS.textLight}
                 value={email}
-                onChangeText={setEmail}
+                onChangeText={v => { setEmail(v); if (emailError) setEmailError(''); }}
                 keyboardType="email-address"
                 autoCapitalize="none"
                 autoCorrect={false}
                 returnKeyType="next"
               />
             </View>
+            {!!emailError && <Text style={styles.fieldError}>{emailError}</Text>}
           </View>
 
           <View style={styles.inputGroup}>
             <Text style={styles.label}>Senha</Text>
-            <View style={styles.inputWrapper}>
-              <Ionicons name="lock-closed-outline" size={18} color={COLORS.textSecondary} style={styles.inputIcon} />
+            <View style={[styles.inputWrapper, !!passwordError && styles.inputWrapperError]}>
+              <Ionicons name="lock-closed-outline" size={18} color={passwordError ? COLORS.danger : COLORS.textSecondary} style={styles.inputIcon} />
               <TextInput
                 style={[styles.input, { flex: 1 }]}
                 placeholder="Sua senha"
                 placeholderTextColor={COLORS.textLight}
                 value={password}
-                onChangeText={setPassword}
+                onChangeText={v => { setPassword(v); if (passwordError) setPasswordError(''); }}
                 secureTextEntry={!showPassword}
                 autoCapitalize="none"
                 returnKeyType="done"
@@ -83,7 +126,18 @@ export function LoginScreen() {
                 />
               </TouchableOpacity>
             </View>
+            {!!passwordError && <Text style={styles.fieldError}>{passwordError}</Text>}
           </View>
+
+          <TouchableOpacity
+            style={styles.forgotBtn}
+            onPress={handleForgotPassword}
+            disabled={resetLoading}
+          >
+            {resetLoading
+              ? <ActivityIndicator size="small" color={COLORS.primary} />
+              : <Text style={styles.forgotText}>Esqueci minha senha</Text>}
+          </TouchableOpacity>
 
           <TouchableOpacity
             style={[styles.loginBtn, loading && styles.loginBtnDisabled]}
@@ -188,6 +242,10 @@ const styles = StyleSheet.create({
     color: COLORS.text,
   },
   eyeBtn: { padding: 4 },
+  inputWrapperError: { borderColor: COLORS.danger },
+  fieldError: { fontSize: 12, color: COLORS.danger, marginTop: 2, marginLeft: 2 },
+  forgotBtn: { alignSelf: 'flex-end', paddingVertical: 4, minHeight: 24, justifyContent: 'center' },
+  forgotText: { fontSize: 13, color: COLORS.primary, fontWeight: '600' },
   loginBtn: {
     backgroundColor: COLORS.primary,
     borderRadius: 12,

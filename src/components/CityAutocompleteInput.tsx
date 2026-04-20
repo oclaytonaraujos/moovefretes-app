@@ -17,7 +17,17 @@ interface Props {
   onSelect: (city: string, stateCode: string) => void;
 }
 
-let cachedCities: any[] | null = null;
+const CITY_CACHE_TTL_MS = 30 * 60 * 1000; // 30 min
+let cityCache: { data: any[]; fetchedAt: number } | null = null;
+
+function getCachedCities(): any[] | null {
+  if (!cityCache) return null;
+  if (Date.now() - cityCache.fetchedAt > CITY_CACHE_TTL_MS) {
+    cityCache = null;
+    return null;
+  }
+  return cityCache.data;
+}
 
 export function CityAutocompleteInput({ placeholder = 'Digite o nome da cidade', value, onSelect }: Props) {
   const [query, setQuery] = useState(value);
@@ -43,13 +53,15 @@ export function CityAutocompleteInput({ placeholder = 'Digite o nome da cidade',
 
     setLoading(true);
     try {
-      if (!cachedCities) {
+      let cities = getCachedCities();
+      if (!cities) {
         const res = await fetch('https://servicodados.ibge.gov.br/api/v1/localidades/municipios');
-        cachedCities = await res.json();
+        cities = await res.json();
+        cityCache = { data: cities!, fetchedAt: Date.now() };
       }
 
       const normalized = q.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-      const filtered: CitySuggestion[] = (cachedCities || [])
+      const filtered: CitySuggestion[] = (cities || [])
         .filter((c: any) => {
           const name = c.nome.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
           return name.includes(normalized);

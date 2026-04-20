@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
+import { registerForPushNotifications } from '../services/notifications';
 import type { Driver, Profile } from '../types';
 
 interface AuthUser {
@@ -53,14 +54,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         supabase.from('drivers').select('*').eq('user_id', userId).single(),
       ]);
 
+      if (profileResult.error) console.warn('[AuthContext] Profile load error:', profileResult.error.message);
+      if (driverResult.error) console.warn('[AuthContext] Driver load error:', driverResult.error.message);
+
       setUser({
         id: userId,
         email,
         profile: profileResult.data || null,
         driver: driverResult.data || null,
       });
-    } catch {
-      setUser({ id: userId, email, profile: null, driver: null });
+
+      registerForPushNotifications(userId).catch(e =>
+        console.warn('[AuthContext] Push registration failed:', e?.message)
+      );
+    } catch (e: any) {
+      console.error('[AuthContext] loadUserData failed:', e?.message);
+      // Keep user null so the app shows login instead of crashing on missing driver data
+      setUser(null);
     } finally {
       setLoading(false);
     }

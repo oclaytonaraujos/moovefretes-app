@@ -43,115 +43,82 @@ export function ChatScreen() {
   const firstUnreadIndexRef = useRef<number>(-1);
   const initialScrollDoneRef = useRef<boolean>(false);
 
+  // Guard against concurrent calls that could create duplicate conversations
+  const isCreatingConversationRef = useRef(false);
+
   const getOrCreateConversation = useCallback(async (): Promise<string | null> => {
     if (!user || !otherUserId) return null;
     if (conversationId) return conversationId;
+    if (isCreatingConversationRef.current) return null;
 
-    const participantsFilter =
-      `and(participant1_id.eq.${user.id},participant2_id.eq.${otherUserId}),and(participant1_id.eq.${otherUserId},participant2_id.eq.${user.id})`;
+    isCreatingConversationRef.current = true;
+    try {
+      const participantsFilter =
+        `and(participant1_id.eq.${user.id},participant2_id.eq.${otherUserId}),and(participant1_id.eq.${otherUserId},participant2_id.eq.${user.id})`;
 
-    // Always use an EXISITING conversation between these two users
-    // We strictly want one single chat thread per user pair.
-    const { data: existingChats } = await supabase
-      .from('conversations')
-      .select('id, is_pinned')
-      .or(participantsFilter)
-      .order('created_at', { ascending: false })
-      .limit(1);
+      const { data: existingChats } = await supabase
+        .from('conversations')
+        .select('id, is_pinned')
+        .or(participantsFilter)
+        .order('created_at', { ascending: false })
+        .limit(1);
 
-    if (existingChats && existingChats.length > 0) {
-      const conv = existingChats[0];
-      const convId = conv.id;
-      setConversationId(convId);
-      setIsPinned(conv.is_pinned || false);
-      
-      // If we're entering from a freight/route context (and not just reloading an empty direct chat),
-      // we need to update the existing conversation's metadata so the ChatList and Header show the new context.
-      if (source && (source === 'freight' || source === 'route')) {
-        await supabase.from('conversations').update({
-          source: 'direct', // Bypass the trigger
+      if (existingChats && existingChats.length > 0) {
+        const conv = existingChats[0];
+        setConversationId(conv.id);
+        setIsPinned(conv.is_pinned || false);
+
+        if (source === 'freight' || source === 'route') {
+          await supabase.from('conversations').update({
+            // TODO: Remove source:'direct' bypass once the Postgres trigger
+            // "column 'origin' does not exist" bug is fixed in the DB migration.
+            source: 'direct',
+            source_id: sourceId || null,
+            freight_id: source === 'freight' ? sourceId : null,
+            origin_city: originCity || null,
+            origin_state: originState || null,
+            destination_city: destinationCity || null,
+            destination_state: destinationState || null,
+            metadata: { original_source: source },
+          }).eq('id', conv.id);
+        }
+
+        return conv.id;
+      }
+
+      // TODO: Replace source:'direct' with the real source value once the Postgres
+      // trigger bug ("column 'origin' does not exist") is fixed server-side.
+      const { data: created, error } = await supabase
+        .from('conversations')
+        .insert({
+          participant1_id: user.id,
+          participant2_id: otherUserId,
+          source: 'direct',
           source_id: sourceId || null,
           freight_id: source === 'freight' ? sourceId : null,
           origin_city: originCity || null,
           origin_state: originState || null,
           destination_city: destinationCity || null,
           destination_state: destinationState || null,
-          metadata: {
-            original_source: source
-          }
-        }).eq('id', convId);
+          metadata: { original_source: source || 'direct' },
+        })
+        .select('id')
+        .single();
+
+      if (error) {
+        console.error('[ChatScreen] Failed to create conversation:', error);
+        return null;
       }
 
-      return convId;
-    }
-
-    // We force `source` to 'direct' and store the real source in `metadata`
-    // This COMPLETELY BYPASSES the broken Postgres trigger on the Supabase server
-    // that throws "column 'origin' does not exist" when `source='freight'`
-    const payload: any = {
-      participant1_id: user.id,
-      participant2_id: otherUserId,
-      source: 'direct', // Bypass the trigger
-      source_id: sourceId || null,
-      origin_city: originCity || null,
-      origin_state: originState || null,
-      destination_city: destinationCity || null,
-      destination_state: destinationState || null,
-      metadata: {
-        original_source: source || 'direct'
+      if (created) {
+        setConversationId(created.id);
+        return created.id;
       }
-    };
 
-    if (source === 'freight' && sourceId) {
-      payload.freight_id = sourceId; // Populate freight_id constraint if needed
+      return null;
+    } finally {
+      isCreatingConversationRef.current = false;
     }
-
-    // Try full insert with source context
-    const { data: created, error } = await supabase
-      .from('conversations')
-      .insert(payload)
-      .select('id')
-      .single();
-
-    if (!error && created) {
-      setConversationId(created.id);
-      return created.id;
-    }
-
-    if (error) {
-      console.error('Failed to create full conversation, trying fallback. Error:', error);
-    }
-
-    // Fallback in case of some other schema issue
-    const { data: fallback, error: fallbackError } = await supabase
-      .from('conversations')
-      .insert({ 
-        participant1_id: user.id, 
-        participant2_id: otherUserId,
-        source: 'direct', // Bypass the trigger
-        source_id: sourceId || null,
-        freight_id: source === 'freight' ? sourceId : null,
-        origin_city: originCity || null,
-        origin_state: originState || null,
-        destination_city: destinationCity || null,
-        destination_state: destinationState || null,
-        metadata: {
-          original_source: source || 'direct'
-        }
-      })
-      .select('id')
-      .single();
-
-    if (fallback) {
-      setConversationId(fallback.id);
-      return fallback.id;
-    }
-    
-    if (fallbackError) {
-      console.error('Fallback insert failed too:', fallbackError);
-    }
-    setIsPinned(false);
-    return null;
   }, [user, otherUserId, conversationId, source, sourceId, originCity, originState, destinationCity, destinationState]);
 
   async function handlePinConversation() {

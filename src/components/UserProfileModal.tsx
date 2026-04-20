@@ -6,6 +6,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../lib/supabase';
+import { useAuth } from '../contexts/AuthContext';
 import { COLORS } from '../utils/constants';
 import { formatPhone, formatLocation } from '../utils/helpers';
 import { CachedAvatar } from './CachedAvatar';
@@ -87,9 +88,25 @@ function formatLastSeen(lastSeen?: string) {
 
 export function UserProfileModal({ visible, userId, onClose }: Props) {
   const insets = useSafeAreaInsets();
+  const { user } = useAuth();
   const [profile, setProfile] = useState<ProfileData | null>(null);
   const [driver, setDriver] = useState<DriverData | null>(null);
   const [loading, setLoading] = useState(false);
+
+  // Registrar visualização
+  useEffect(() => {
+    if (visible && userId && user?.id && userId !== user.id) {
+      supabase
+        .from('profile_views')
+        .insert({
+          viewer_id: user.id,
+          target_id: userId,
+        })
+        .then(({ error }) => {
+          if (error) console.error('Error recording profile view:', error);
+        });
+    }
+  }, [visible, userId, user?.id]);
 
   useEffect(() => {
     if (!visible || !userId) return;

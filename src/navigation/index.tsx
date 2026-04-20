@@ -7,6 +7,7 @@ import { Ionicons } from '@expo/vector-icons';
 
 import { useAuth } from '../contexts/AuthContext';
 import { COLORS } from '../utils/constants';
+import { navigationRef } from './navigationRef';
 
 import { LoginScreen } from '../screens/auth/LoginScreen';
 import { HomeScreen } from '../screens/HomeScreen';
@@ -98,6 +99,22 @@ function MainTabs() {
   );
 }
 
+const linking = {
+  prefixes: ['moovefretes://'],
+  config: {
+    screens: {
+      Main: {
+        screens: {
+          FreightsTab: { screens: { FreightsList: 'fretes' } },
+          ChatTab:     { screens: { ChatList: 'mensagens' } },
+        },
+      },
+      Chat:          'chat/:conversationId',
+      Notifications: 'notificacoes',
+    },
+  },
+};
+
 export function AppNavigator() {
   const { user, loading } = useAuth();
 
@@ -110,7 +127,7 @@ export function AppNavigator() {
   }
 
   return (
-    <NavigationContainer>
+    <NavigationContainer linking={linking} ref={navigationRef}>
       <Stack.Navigator screenOptions={{ headerShown: false }}>
         {user ? (
           <>

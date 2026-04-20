@@ -37,10 +37,20 @@ export function FreightCard({ freight, onPress, showActions }: FreightCardProps)
     Linking.openURL(url);
   }
 
+  const origin = formatLocation(freight.origin);
+  const dest = formatLocation(freight.destination);
+  const priceLabel = formatCurrency(freight.price);
+
   return (
-    <TouchableOpacity style={styles.card} onPress={onPress} activeOpacity={0.75}>
+    <TouchableOpacity
+      style={styles.card}
+      onPress={onPress}
+      activeOpacity={0.75}
+      accessibilityRole="button"
+      accessibilityLabel={`Frete de ${origin} para ${dest}, valor ${priceLabel}`}
+      accessibilityHint="Toque para ver detalhes do frete"
+    >
       <View style={styles.row}>
-        {/* Company Logo */}
         <CachedAvatar
           uri={freight.company_logo}
           name={freight.company_name}
@@ -48,33 +58,33 @@ export function FreightCard({ freight, onPress, showActions }: FreightCardProps)
           borderRadius={10}
         />
 
-        {/* Route + Meta */}
         <View style={styles.middle}>
-          <View style={styles.routeItem}>
+          <View style={styles.routeItem} accessibilityElementsHidden>
             <View style={styles.dotFilled} />
-            <Text style={styles.routeText} numberOfLines={1}>
-              {formatLocation(freight.origin)}
-            </Text>
+            <Text style={styles.routeText} numberOfLines={1}>{origin}</Text>
           </View>
-          <View style={styles.routeItem}>
+          <View style={styles.routeItem} accessibilityElementsHidden>
             <View style={styles.dotHollow} />
-            <Text style={styles.routeText} numberOfLines={1}>
-              {formatLocation(freight.destination)}
-            </Text>
+            <Text style={styles.routeText} numberOfLines={1}>{dest}</Text>
           </View>
-          <Text style={styles.meta} numberOfLines={1}>
+          <Text style={styles.meta} numberOfLines={1} accessibilityElementsHidden>
             {getTimeAgo(freight.created_at)}
             {meta.length > 0 ? `  •  ${meta.join('  •  ')}` : ''}
           </Text>
         </View>
 
-        {/* Price + WhatsApp */}
         <View style={styles.right}>
-          <Text style={styles.price} numberOfLines={1} adjustsFontSizeToFit>
-            {formatCurrency(freight.price)}
+          <Text style={styles.price} numberOfLines={1} adjustsFontSizeToFit accessibilityElementsHidden>
+            {priceLabel}
           </Text>
           {showActions && freight.status === 'active' && (
-            <TouchableOpacity style={styles.whatsappBtn} onPress={handleWhatsApp} activeOpacity={0.8}>
+            <TouchableOpacity
+              style={styles.whatsappBtn}
+              onPress={handleWhatsApp}
+              activeOpacity={0.8}
+              accessibilityRole="button"
+              accessibilityLabel={`Contatar via WhatsApp sobre frete de ${origin} para ${dest}`}
+            >
               <Ionicons name="logo-whatsapp" size={13} color="#25D366" />
               <Text style={styles.whatsappText}>Enviar Mensagem</Text>
             </TouchableOpacity>

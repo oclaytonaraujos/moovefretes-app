@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity,
   RefreshControl, ActivityIndicator, Modal, ScrollView,
@@ -7,10 +7,9 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
-import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
 import { COLORS } from '../utils/constants';
-import { mapSupabaseFreight, fetchPublisherProfiles } from '../utils/helpers';
+import { useFreights } from '../hooks/useFreights';
 import { FreightCard } from '../components/FreightCard';
 import { CityAutocompleteInput } from '../components/CityAutocompleteInput';
 import type { Freight } from '../types';
@@ -62,43 +61,27 @@ export function FreightsScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<any>();
   const { user } = useAuth();
-  const [freights, setFreights] = useState<Freight[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
   const [showFilter, setShowFilter] = useState(false);
   const [filters, setFilters] = useState<FilterState>(DEFAULT_FILTERS);
   const [pending, setPending] = useState<FilterState>(DEFAULT_FILTERS);
 
   const driver = user?.driver;
 
-  const loadFreights = useCallback(async () => {
-    try {
-      let query = supabase
-        .from('freights')
-        .select('*')
-        .eq('status', 'active')
-        .order('created_at', { ascending: false })
-        .limit(50);
+  const {
+    data,
+    isLoading: loading,
+    isFetchingNextPage,
+    hasNextPage,
+    fetchNextPage,
+    refetch,
+    isRefetching,
+    error: queryError,
+  } = useFreights(driver ?? null);
 
-      if (driver?.vehicle_types && driver.vehicle_types.length > 0) {
-        query = query.overlaps('vehicle_types', driver.vehicle_types);
-      }
-
-      const { data: rows } = await query;
-      if (!rows) { setFreights([]); return; }
-      const profiles = await fetchPublisherProfiles(supabase, rows);
-      setFreights(rows.map(row => mapSupabaseFreight(row, profiles.get(row.publisher_id))));
-    } catch {
-      setFreights([]);
-    }
-  }, [driver]);
-
-  useEffect(() => { loadFreights().then(() => setLoading(false)); }, [loadFreights]);
+  const freights: Freight[] = data?.pages.flatMap(p => p.items) ?? [];
 
   async function handleRefresh() {
-    setRefreshing(true);
-    await loadFreights();
-    setRefreshing(false);
+    await refetch();
   }
 
   const filtered = useMemo(() => freights.filter((f: Freight) => {
@@ -185,7 +168,9 @@ export function FreightsScreen() {
           data={filtered}
           keyExtractor={item => item.id}
           contentContainerStyle={styles.list}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={COLORS.primary} />}
+          refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={handleRefresh} tintColor={COLORS.primary} />}
+          onEndReached={() => { if (hasNextPage && !isFetchingNextPage) fetchNextPage(); }}
+          onEndReachedThreshold={0.3}
           renderItem={({ item }) => (
             <FreightCard
               freight={item}
@@ -193,14 +178,30 @@ export function FreightsScreen() {
               showActions
             />
           )}
+          ListFooterComponent={
+            isFetchingNextPage
+              ? <ActivityIndicator size="small" color={COLORS.primary} style={{ paddingVertical: 16 }} />
+              : null
+          }
           ListEmptyComponent={
-            <View style={styles.empty}>
-              <Ionicons name="document-text-outline" size={48} color={COLORS.textLight} />
-              <Text style={styles.emptyTitle}>Nenhum frete encontrado</Text>
-              <Text style={styles.emptyDesc}>
-                {activeCount > 0 ? 'Tente ajustar os filtros.' : 'Verifique mais tarde.'}
-              </Text>
-            </View>
+            queryError ? (
+              <View style={styles.empty}>
+                <Ionicons name="cloud-offline-outline" size={48} color={COLORS.danger} />
+                <Text style={styles.emptyTitle}>Erro ao carregar fretes</Text>
+                <Text style={styles.emptyDesc}>{(queryError as Error).message}</Text>
+                <TouchableOpacity style={styles.retryBtn} onPress={handleRefresh}>
+                  <Text style={styles.retryText}>Tentar novamente</Text>
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <View style={styles.empty}>
+                <Ionicons name="document-text-outline" size={48} color={COLORS.textLight} />
+                <Text style={styles.emptyTitle}>Nenhum frete encontrado</Text>
+                <Text style={styles.emptyDesc}>
+                  {activeCount > 0 ? 'Tente ajustar os filtros.' : 'Verifique mais tarde.'}
+                </Text>
+              </View>
+            )
           }
         />
       )}
@@ -412,6 +413,8 @@ const styles = StyleSheet.create({
   empty: { alignItems: 'center', paddingTop: 60, gap: 10, paddingHorizontal: 32 },
   emptyTitle: { fontSize: 16, fontWeight: '700', color: COLORS.text, textAlign: 'center' },
   emptyDesc: { fontSize: 13, color: COLORS.textSecondary, textAlign: 'center', lineHeight: 18 },
+  retryBtn: { marginTop: 12, paddingHorizontal: 24, paddingVertical: 10, backgroundColor: COLORS.primary, borderRadius: 10 },
+  retryText: { color: '#fff', fontWeight: '700', fontSize: 14 },
   // Modal
   overlay: { flex: 1, justifyContent: 'flex-end' },
   backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)' },
