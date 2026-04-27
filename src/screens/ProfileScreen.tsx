@@ -8,18 +8,16 @@ import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
 import { COLORS } from '../utils/constants';
-import { StatusBadge } from '../components/StatusBadge';
-import { formatPhone, getSupabaseAvatarUrl, formatLocation } from '../utils/helpers';
+import { getSupabaseAvatarUrl, formatPhone } from '../utils/helpers';
 
 export function ProfileScreen() {
   const insets = useSafeAreaInsets();
-  const { user, signOut, refreshDriver } = useAuth();
+  const { user, signOut, refreshCompany } = useAuth();
   const [showEditModal, setShowEditModal] = useState(false);
-  const [showLocationModal, setShowLocationModal] = useState(false);
 
-  const driver = user?.driver;
+  const company = user?.company;
   const profile = user?.profile;
-  const avatarUrl = getSupabaseAvatarUrl(profile?.avatar_url);
+  const avatarUrl = getSupabaseAvatarUrl(profile?.avatar_url || company?.logo);
 
   async function handleSignOut() {
     Alert.alert('Sair', 'Tem certeza que deseja sair da conta?', [
@@ -28,14 +26,12 @@ export function ProfileScreen() {
     ]);
   }
 
-  const currentStatus = driver?.available ? 'available' : 'offline';
-
   return (
     <View style={styles.flex}>
       <View style={[styles.header, { paddingTop: insets.top + 16 }]}>
         <View>
           <Text style={styles.title}>Meu Perfil</Text>
-          <Text style={styles.subtitle}>Gerencie seus dados</Text>
+          <Text style={styles.subtitle}>Gerencie os dados da empresa</Text>
         </View>
         <TouchableOpacity style={styles.editBtn} onPress={() => setShowEditModal(true)}>
           <Ionicons name="create-outline" size={20} color="#fff" />
@@ -50,75 +46,32 @@ export function ProfileScreen() {
               <Image source={{ uri: avatarUrl }} style={styles.avatar} />
             ) : (
               <View style={[styles.avatar, styles.avatarFallback]}>
-                <Ionicons name="person" size={36} color={COLORS.primary} />
+                <Ionicons name="business" size={36} color={COLORS.primary} />
               </View>
             )}
             <View style={styles.profileInfo}>
-              <Text style={styles.profileName}>{profile?.name || driver?.name || 'Motorista'}</Text>
+              <Text style={styles.profileName}>{company?.company_name || profile?.name || 'Transportadora'}</Text>
               <Text style={styles.profileEmail}>{user?.email}</Text>
-              <StatusBadge type="availability" status={currentStatus} />
+              {!!company?.verified && (
+                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4 }}>
+                   <Ionicons name="checkmark-circle" size={14} color={COLORS.success} />
+                   <Text style={{ fontSize: 12, color: COLORS.success, fontWeight: '600' }}>Verificada</Text>
+                 </View>
+              )}
             </View>
-          </View>
-
-          <View style={styles.statsRow}>
-            <ProfileStat
-              icon="star"
-              iconColor={COLORS.gold}
-              value={(driver?.rating || 0).toFixed(1)}
-              label="Avaliação"
-            />
-            <View style={styles.statDivider} />
-            <ProfileStat
-              icon="checkmark-circle"
-              iconColor={COLORS.available}
-              value={String(driver?.completed_trips || 0)}
-              label="Viagens"
-            />
-            <View style={styles.statDivider} />
-            <ProfileStat
-              icon="people"
-              iconColor={COLORS.primary}
-              value={String(profile?.total_ratings || 0)}
-              label="Avaliações"
-            />
           </View>
         </View>
 
-        {/* Vehicle Info */}
-        {(driver?.vehicle_model || driver?.vehicle_type || driver?.vehicle_plate) && (
-          <View style={styles.section}>
-            <View style={styles.sectionHeader}>
-              <Ionicons name="car-sport-outline" size={18} color={COLORS.primary} />
-              <Text style={styles.sectionTitle}>Veículo</Text>
-            </View>
-            <View style={styles.infoGrid}>
-              {driver?.vehicle_type && <InfoRow label="Tipo" value={driver.vehicle_type} />}
-              {driver?.vehicle_model && <InfoRow label="Modelo" value={driver.vehicle_model} />}
-              {driver?.vehicle_plate && <InfoRow label="Placa" value={driver.vehicle_plate} />}
-              {driver?.vehicle_year && <InfoRow label="Ano" value={driver.vehicle_year} />}
-              {driver?.vehicle_capacity && <InfoRow label="Capacidade" value={`${driver.vehicle_capacity} kg`} />}
-            </View>
-            {driver?.vehicle_types && driver.vehicle_types.length > 0 && (
-              <View style={styles.tagsRow}>
-                {driver.vehicle_types.map(t => <Tag key={t} label={t} />)}
-              </View>
-            )}
-          </View>
-        )}
-
-        {/* Documents */}
+        {/* Company Info */}
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
-            <Ionicons name="document-text-outline" size={18} color={COLORS.primary} />
-            <Text style={styles.sectionTitle}>Documentação</Text>
+            <Ionicons name="business-outline" size={18} color={COLORS.primary} />
+            <Text style={styles.sectionTitle}>Dados da Empresa</Text>
           </View>
           <View style={styles.infoGrid}>
-            {driver?.cnh && <InfoRow label="CNH" value={driver.cnh} />}
-            {driver?.cnh_category && <InfoRow label="Categoria" value={driver.cnh_category} />}
-            {driver?.cnh_expiry && (
-              <InfoRow label="Validade CNH" value={new Date(driver.cnh_expiry).toLocaleDateString('pt-BR')} />
-            )}
-            {driver?.rntrc && <InfoRow label="RNTRC" value={driver.rntrc} />}
+            <InfoRow label="Razão Social" value={company?.company_name || '-'} />
+            <InfoRow label="CNPJ" value={company?.cnpj || '-'} />
+            <InfoRow label="Tipo" value={company?.company_type === 'agenciador' ? 'Agenciador' : company?.company_type === 'embarcador' ? 'Embarcador' : 'Transportadora'} />
           </View>
         </View>
 
@@ -128,18 +81,10 @@ export function ProfileScreen() {
             <Ionicons name="call-outline" size={18} color={COLORS.primary} />
             <Text style={styles.sectionTitle}>Contato</Text>
           </View>
-          {driver?.phone && <InfoRow label="Telefone" value={formatPhone(driver.phone)} />}
-          <InfoRow label="E-mail" value={user?.email || '-'} />
-          {driver?.current_location && (
-            <View style={styles.locationRow}>
-              <View style={{ flex: 1 }}>
-                <InfoRow label="Localização Atual" value={formatLocation(driver.current_location)} />
-              </View>
-              <TouchableOpacity style={styles.updateLocBtn} onPress={() => setShowLocationModal(true)}>
-                <Ionicons name="location" size={14} color={COLORS.primary} />
-                <Text style={styles.updateLocText}>Atualizar</Text>
-              </TouchableOpacity>
-            </View>
+          {!!company?.phone && <InfoRow label="Telefone" value={formatPhone(company.phone)} />}
+          <InfoRow label="E-mail" value={company?.email || user?.email || '-'} />
+          {!!(company?.address?.city && company?.address?.state) && (
+             <InfoRow label="Sede" value={`${company.address.city} - ${company.address.state}`} />
           )}
         </View>
 
@@ -157,34 +102,17 @@ export function ProfileScreen() {
           <Text style={styles.signOutText}>Sair da Conta</Text>
         </TouchableOpacity>
 
-        <Text style={styles.version}>MooveFretes Motorista v1.0.0</Text>
+        <Text style={styles.version}>MooveFretes Transportadora v1.0.0</Text>
       </ScrollView>
 
       <EditProfileModal
         visible={showEditModal}
-        driver={driver}
+        company={company}
         profile={profile}
         userId={user?.id || ''}
         onClose={() => setShowEditModal(false)}
-        onSaved={() => { setShowEditModal(false); refreshDriver(); }}
+        onSaved={() => { setShowEditModal(false); refreshCompany(); }}
       />
-
-      <UpdateLocationModal
-        visible={showLocationModal}
-        userId={user?.id || ''}
-        onClose={() => setShowLocationModal(false)}
-        onSaved={() => { setShowLocationModal(false); refreshDriver(); }}
-      />
-    </View>
-  );
-}
-
-function ProfileStat({ icon, iconColor, value, label }: { icon: string; iconColor: string; value: string; label: string }) {
-  return (
-    <View style={pStatStyles.item}>
-      <Ionicons name={icon as any} size={20} color={iconColor} />
-      <Text style={pStatStyles.value}>{value}</Text>
-      <Text style={pStatStyles.label}>{label}</Text>
     </View>
   );
 }
@@ -194,14 +122,6 @@ function InfoRow({ label, value }: { label: string; value: string }) {
     <View style={infoStyles.row}>
       <Text style={infoStyles.label}>{label}</Text>
       <Text style={infoStyles.value}>{value}</Text>
-    </View>
-  );
-}
-
-function Tag({ label }: { label: string }) {
-  return (
-    <View style={tagStyles.tag}>
-      <Text style={tagStyles.label}>{label}</Text>
     </View>
   );
 }
@@ -216,16 +136,18 @@ function SettingItem({ icon, label, onPress }: { icon: string; label: string; on
   );
 }
 
-function EditProfileModal({ visible, driver, profile, userId, onClose, onSaved }: any) {
-  const [name, setName] = useState(profile?.name || driver?.name || '');
-  const [phone, setPhone] = useState(driver?.phone || '');
+function EditProfileModal({ visible, company, profile, userId, onClose, onSaved }: any) {
+  const [name, setName] = useState(company?.company_name || profile?.name || '');
+  const [phone, setPhone] = useState(company?.phone || profile?.phone || '');
+  const [city, setCity] = useState(company?.address?.city || profile?.city || '');
+  const [state, setState] = useState(company?.address?.state || profile?.state || '');
   const [saving, setSaving] = useState(false);
 
   async function handleSave() {
     setSaving(true);
     await Promise.all([
-      supabase.from('profiles').update({ name }).eq('id', userId),
-      supabase.from('drivers').update({ name, phone }).eq('user_id', userId),
+      supabase.from('profiles').update({ name, phone, city, state }).eq('id', userId),
+      supabase.from('companies').update({ company_name: name, phone, address: { city, state } }).eq('user_id', userId),
     ]);
     setSaving(false);
     onSaved();
@@ -235,13 +157,13 @@ function EditProfileModal({ visible, driver, profile, userId, onClose, onSaved }
     <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
       <View style={editStyles.container}>
         <View style={editStyles.handle} />
-        <Text style={editStyles.title}>Editar Perfil</Text>
-        <Text style={editStyles.label}>Nome completo</Text>
+        <Text style={editStyles.title}>Editar Dados da Empresa</Text>
+        <Text style={editStyles.label}>Razão Social / Nome</Text>
         <TextInput
           style={editStyles.input}
           value={name}
           onChangeText={setName}
-          placeholder="Seu nome"
+          placeholder="Nome da Empresa"
           placeholderTextColor={COLORS.textLight}
         />
         <Text style={editStyles.label}>Telefone</Text>
@@ -253,49 +175,30 @@ function EditProfileModal({ visible, driver, profile, userId, onClose, onSaved }
           keyboardType="phone-pad"
           placeholderTextColor={COLORS.textLight}
         />
+        <Text style={editStyles.label}>Cidade</Text>
+        <TextInput
+          style={editStyles.input}
+          value={city}
+          onChangeText={setCity}
+          placeholder="Cidade"
+          placeholderTextColor={COLORS.textLight}
+        />
+        <Text style={editStyles.label}>Estado (UF)</Text>
+        <TextInput
+          style={editStyles.input}
+          value={state}
+          onChangeText={setState}
+          placeholder="SP"
+          maxLength={2}
+          autoCapitalize="characters"
+          placeholderTextColor={COLORS.textLight}
+        />
         <View style={editStyles.btnRow}>
           <TouchableOpacity style={editStyles.cancelBtn} onPress={onClose}>
             <Text style={editStyles.cancelText}>Cancelar</Text>
           </TouchableOpacity>
           <TouchableOpacity style={editStyles.saveBtn} onPress={handleSave} disabled={saving}>
             {saving ? <ActivityIndicator color="#fff" /> : <Text style={editStyles.saveText}>Salvar</Text>}
-          </TouchableOpacity>
-        </View>
-      </View>
-    </Modal>
-  );
-}
-
-function UpdateLocationModal({ visible, userId, onClose, onSaved }: any) {
-  const [city, setCity] = useState('');
-  const [state, setState] = useState('');
-  const [saving, setSaving] = useState(false);
-
-  async function handleSave() {
-    if (!city.trim() || !state.trim()) return;
-    setSaving(true);
-    const location = { city: city.trim(), state: state.trim().toUpperCase(), lastUpdated: new Date().toISOString() };
-    await supabase.from('drivers').update({ current_location: location }).eq('user_id', userId);
-    setSaving(false);
-    setCity(''); setState('');
-    onSaved();
-  }
-
-  return (
-    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
-      <View style={editStyles.container}>
-        <View style={editStyles.handle} />
-        <Text style={editStyles.title}>Atualizar Localização</Text>
-        <Text style={editStyles.label}>Cidade</Text>
-        <TextInput style={editStyles.input} value={city} onChangeText={setCity} placeholder="Sua cidade atual" placeholderTextColor={COLORS.textLight} />
-        <Text style={editStyles.label}>Estado (UF)</Text>
-        <TextInput style={editStyles.input} value={state} onChangeText={t => setState(t.toUpperCase())} placeholder="SP" maxLength={2} autoCapitalize="characters" placeholderTextColor={COLORS.textLight} />
-        <View style={editStyles.btnRow}>
-          <TouchableOpacity style={editStyles.cancelBtn} onPress={onClose}>
-            <Text style={editStyles.cancelText}>Cancelar</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={editStyles.saveBtn} onPress={handleSave} disabled={saving}>
-            {saving ? <ActivityIndicator color="#fff" /> : <Text style={editStyles.saveText}>Atualizar</Text>}
           </TouchableOpacity>
         </View>
       </View>
@@ -329,12 +232,6 @@ const styles = StyleSheet.create({
   profileInfo: { flex: 1, gap: 4 },
   profileName: { fontSize: 18, fontWeight: '800', color: COLORS.text },
   profileEmail: { fontSize: 13, color: COLORS.textSecondary },
-  statsRow: {
-    flexDirection: 'row', alignItems: 'center',
-    borderTopWidth: 1, borderTopColor: COLORS.borderLight,
-    paddingTop: 16,
-  },
-  statDivider: { width: 1, height: 36, backgroundColor: COLORS.borderLight },
   section: {
     backgroundColor: COLORS.surface,
     borderRadius: 16, padding: 16,
@@ -343,14 +240,6 @@ const styles = StyleSheet.create({
   sectionHeader: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   sectionTitle: { fontSize: 15, fontWeight: '700', color: COLORS.text },
   infoGrid: { gap: 2 },
-  locationRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  updateLocBtn: {
-    flexDirection: 'row', alignItems: 'center', gap: 4,
-    paddingHorizontal: 8, paddingVertical: 5,
-    borderRadius: 8, borderWidth: 1, borderColor: COLORS.primary,
-  },
-  updateLocText: { fontSize: 12, color: COLORS.primary, fontWeight: '600' },
-  tagsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   signOutBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
     gap: 8, paddingVertical: 14,
@@ -361,12 +250,6 @@ const styles = StyleSheet.create({
   version: { textAlign: 'center', fontSize: 12, color: COLORS.textLight },
 });
 
-const pStatStyles = StyleSheet.create({
-  item: { flex: 1, alignItems: 'center', gap: 4 },
-  value: { fontSize: 18, fontWeight: '800', color: COLORS.text },
-  label: { fontSize: 11, color: COLORS.textSecondary },
-});
-
 const infoStyles = StyleSheet.create({
   row: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
@@ -375,14 +258,6 @@ const infoStyles = StyleSheet.create({
   },
   label: { fontSize: 13, color: COLORS.textSecondary },
   value: { fontSize: 13, fontWeight: '600', color: COLORS.text, textAlign: 'right', flex: 1, marginLeft: 12 },
-});
-
-const tagStyles = StyleSheet.create({
-  tag: {
-    backgroundColor: COLORS.primary + '15',
-    borderRadius: 100, paddingHorizontal: 10, paddingVertical: 4,
-  },
-  label: { fontSize: 12, fontWeight: '600', color: COLORS.primary },
 });
 
 const settingStyles = StyleSheet.create({

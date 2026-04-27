@@ -13,9 +13,9 @@ import { LoginScreen } from '../screens/auth/LoginScreen';
 import { HomeScreen } from '../screens/HomeScreen';
 import { FreightsScreen } from '../screens/FreightsScreen';
 import { FreightDetailScreen } from '../screens/FreightDetailScreen';
-import { CompaniesScreen } from '../screens/CompaniesScreen';
-import { CompanyDetailScreen } from '../screens/CompanyDetailScreen';
-import { RoutesScreen } from '../screens/RoutesScreen';
+import { CreateFreightScreen } from '../screens/CreateFreightScreen';
+import { DriversScreen } from '../screens/DriversScreen';
+import { DriverDetailScreen } from '../screens/DriverDetailScreen';
 import { ChatListScreen } from '../screens/ChatListScreen';
 import { ChatScreen } from '../screens/ChatScreen';
 import { ProfileScreen } from '../screens/ProfileScreen';
@@ -29,15 +29,16 @@ function FreightsStack() {
     <Stack.Navigator screenOptions={{ headerShown: false }}>
       <Stack.Screen name="FreightsList" component={FreightsScreen} />
       <Stack.Screen name="FreightDetail" component={FreightDetailScreen} />
+      <Stack.Screen name="CreateFreight" component={CreateFreightScreen} />
     </Stack.Navigator>
   );
 }
 
-function CompaniesStack() {
+function DriversStack() {
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
-      <Stack.Screen name="CompaniesList" component={CompaniesScreen} />
-      <Stack.Screen name="CompanyDetail" component={CompanyDetailScreen} />
+      <Stack.Screen name="DriversList" component={DriversScreen} />
+      <Stack.Screen name="DriverDetail" component={DriverDetailScreen} />
     </Stack.Navigator>
   );
 }
@@ -46,7 +47,6 @@ function ChatStack() {
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
       <Stack.Screen name="ChatList" component={ChatListScreen} />
-      <Stack.Screen name="Chat" component={ChatScreen} />
     </Stack.Navigator>
   );
 }
@@ -54,9 +54,9 @@ function ChatStack() {
 const TAB_ICONS: Record<string, { active: string; inactive: string }> = {
   HomeTab:      { active: 'home',           inactive: 'home-outline' },
   FreightsTab:  { active: 'document-text',  inactive: 'document-text-outline' },
-  CompaniesTab: { active: 'business',       inactive: 'business-outline' },
-  RoutesTab:    { active: 'map',            inactive: 'map-outline' },
+  DriversTab:   { active: 'people',         inactive: 'people-outline' },
   ChatTab:      { active: 'chatbubbles',    inactive: 'chatbubbles-outline' },
+  ProfileTab:   { active: 'person',         inactive: 'person-outline' },
 };
 
 function MainTabs() {
@@ -92,9 +92,9 @@ function MainTabs() {
     >
       <Tab.Screen name="HomeTab"      component={HomeScreen}     options={{ title: 'Início' }} />
       <Tab.Screen name="FreightsTab"  component={FreightsStack}  options={{ title: 'Fretes' }} />
-      <Tab.Screen name="CompaniesTab" component={CompaniesStack} options={{ title: 'Empresas' }} />
-      <Tab.Screen name="RoutesTab"    component={RoutesScreen}   options={{ title: 'Rotas' }} />
+      <Tab.Screen name="DriversTab"   component={DriversStack}   options={{ title: 'Motoristas' }} />
       <Tab.Screen name="ChatTab"      component={ChatStack}      options={{ title: 'Chat' }} />
+      <Tab.Screen name="ProfileTab"   component={ProfileScreen}  options={{ title: 'Perfil' }} />
     </Tab.Navigator>
   );
 }
@@ -133,10 +133,10 @@ export function AppNavigator() {
           <>
             <Stack.Screen name="Main"            component={MainTabs} />
             <Stack.Screen name="FreightDetail"   component={FreightDetailScreen} />
-            <Stack.Screen name="CompanyDetail"   component={CompanyDetailScreen} />
+            <Stack.Screen name="CreateFreight"   component={CreateFreightScreen} />
+            <Stack.Screen name="DriverDetail"    component={DriverDetailScreen} />
             <Stack.Screen name="Chat"            component={ChatScreen} />
             <Stack.Screen name="Notifications"   component={NotificationsScreen} />
-            <Stack.Screen name="ProfileTab"      component={ProfileScreen} />
           </>
         ) : (
           <Stack.Screen name="Login" component={LoginScreen} />

@@ -128,7 +128,7 @@ export function mapSupabaseFreight(
     cargo_type: row.cargo_type || meta.cargoType || 'Carga geral',
     weight: row.weight_kg || null,
     vehicle_types: row.vehicle_types || (meta.selectedHeavyVehicles ? [...(meta.selectedHeavyVehicles||[]), ...(meta.selectedMediumVehicles||[]), ...(meta.selectedLightVehicles||[])] : null),
-    body_types: row.body_types || null,
+    body_types: row.body_types || meta.body_types || null,
     price: row.value_estimate != null ? Number(row.value_estimate) : parseMetadataPrice(meta.price),
     distance_km: row.distance_km || null,
     scheduled_date: row.pickup_date || row.scheduled_date || null,

@@ -233,10 +233,10 @@ export function ChatListScreen() {
           onPress={() => {
             Alert.alert(
               'Nova Conversa',
-              'Para iniciar uma nova conversa, busque por uma empresa e clique no botão de Chat.',
+              'Para iniciar uma nova conversa, busque por um motorista e clique no botão de Chat.',
               [
                 { text: 'Cancelar', style: 'cancel' },
-                { text: 'Buscar Empresa', onPress: () => navigation.navigate('CompaniesTab') },
+                { text: 'Buscar Motorista', onPress: () => navigation.navigate('DriversTab') },
               ]
             );
           }}
@@ -380,7 +380,7 @@ export function ChatListScreen() {
               </Text>
               <Text style={styles.emptyDesc}>
                 {activeFilter === 'all'
-                  ? 'Suas conversas com embarcadores e transportadoras aparecerão aqui.'
+                  ? 'Suas conversas com motoristas aparecerão aqui.'
                   : activeFilter === 'unread'
                   ? 'Você não tem mensagens não lidas.'
                   : activeFilter === 'freight'

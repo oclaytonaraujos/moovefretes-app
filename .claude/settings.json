@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//c/Users/Clayton/Documents/MOOVEFRETES/app/src/screens/**)",
+      "Read(//c/Users/Clayton/Documents/MOOVEFRETES/MooveFretes/**)",
+      "Bash(xargs grep *)",
+      "Bash(find \"c:\\\\\\\\Users\\\\\\\\Clayton\\\\\\\\Documents\\\\\\\\MOOVEFRETES\\\\\\\\MooveFretes\" -type f \\\\\\( -name \"*Create*\" -o -name \"*New*\" -o -name \"*Form*\" \\\\\\) -iname \"*.tsx\" -o -iname \"*.ts\")"
+    ]
+  }
+}

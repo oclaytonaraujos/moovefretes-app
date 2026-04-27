@@ -1,16 +1,16 @@
 {
   "expo": {
-    "name": "MooveFretes Motorista",
-    "slug": "moovefretes-motorista",
+    "name": "MooveFretes Transportadora",
+    "slug": "moovefretes-transportadora",
     "version": "1.0.0",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "com.moovefretes.motorista"
+      "bundleIdentifier": "com.moovefretes.transportadora"
     },
     "android": {
-      "package": "com.moovefretes.motorista",
+      "package": "com.moovefretes.transportadora",
       "permissions": [
         "ACCESS_FINE_LOCATION",
         "ACCESS_COARSE_LOCATION",

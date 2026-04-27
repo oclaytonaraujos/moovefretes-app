@@ -26,9 +26,18 @@ export function ChatScreen() {
   const { user } = useAuth();
   const {
     userId: otherUserId, userName, conversationId: initialConvId, userAvatar,
-    source, sourceId, originCity, originState, destinationCity, destinationState,
+    source: pSource, sourceId, originCity: pOriginCity, originState: pOriginState, 
+    destinationCity: pDestinationCity, destinationState: pDestinationState,
     initialMessage,
   } = route.params || {};
+
+  const [convData, setConvData] = useState({
+    source: pSource,
+    originCity: pOriginCity,
+    originState: pOriginState,
+    destinationCity: pDestinationCity,
+    destinationState: pDestinationState,
+  });
   const [messages, setMessages] = useState<Message[]>([]);
   const [conversationId, setConversationId] = useState<string | null>(initialConvId || null);
   const [text, setText] = useState<string>(initialMessage || '');
@@ -58,7 +67,7 @@ export function ChatScreen() {
 
       const { data: existingChats } = await supabase
         .from('conversations')
-        .select('id, is_pinned')
+        .select('id, is_pinned, source, origin_city, origin_state, destination_city, destination_state, metadata')
         .or(participantsFilter)
         .order('created_at', { ascending: false })
         .limit(1);
@@ -68,18 +77,27 @@ export function ChatScreen() {
         setConversationId(conv.id);
         setIsPinned(conv.is_pinned || false);
 
-        if (source === 'freight' || source === 'route') {
+        // Update local metadata state from DB if not already provided in params
+        setConvData(prev => ({
+          source: prev.source || (conv.source === 'direct' ? conv.metadata?.original_source : conv.source),
+          originCity: prev.originCity || conv.origin_city,
+          originState: prev.originState || conv.origin_state,
+          destinationCity: prev.destinationCity || conv.destination_city,
+          destinationState: prev.destinationState || conv.destination_state,
+        }));
+
+        if (pSource === 'freight' || pSource === 'route') {
           await supabase.from('conversations').update({
             // TODO: Remove source:'direct' bypass once the Postgres trigger
             // "column 'origin' does not exist" bug is fixed in the DB migration.
             source: 'direct',
             source_id: sourceId || null,
-            freight_id: source === 'freight' ? sourceId : null,
-            origin_city: originCity || null,
-            origin_state: originState || null,
-            destination_city: destinationCity || null,
-            destination_state: destinationState || null,
-            metadata: { original_source: source },
+            freight_id: pSource === 'freight' ? sourceId : null,
+            origin_city: pOriginCity || null,
+            origin_state: pOriginState || null,
+            destination_city: pDestinationCity || null,
+            destination_state: pDestinationState || null,
+            metadata: { original_source: pSource },
           }).eq('id', conv.id);
         }
 
@@ -95,12 +113,12 @@ export function ChatScreen() {
           participant2_id: otherUserId,
           source: 'direct',
           source_id: sourceId || null,
-          freight_id: source === 'freight' ? sourceId : null,
-          origin_city: originCity || null,
-          origin_state: originState || null,
-          destination_city: destinationCity || null,
-          destination_state: destinationState || null,
-          metadata: { original_source: source || 'direct' },
+          freight_id: pSource === 'freight' ? sourceId : null,
+          origin_city: pOriginCity || null,
+          origin_state: pOriginState || null,
+          destination_city: pDestinationCity || null,
+          destination_state: pDestinationState || null,
+          metadata: { original_source: pSource || 'direct' },
         })
         .select('id')
         .single();
@@ -290,7 +308,7 @@ export function ChatScreen() {
 
     if (!error && data) {
       setMessages(prev => [...prev, data]);
-      const senderName = (user as any)?.profile?.name || (user as any)?.driver?.name || 'Motorista';
+      const senderName = (user as any)?.company?.company_name || (user as any)?.profile?.name || 'Transportadora';
       await supabase.from('notifications').insert({
         user_id: otherUserId,
         type: 'message',
@@ -365,7 +383,7 @@ export function ChatScreen() {
         await supabase.from('conversations').update({ last_message_at: now }).eq('id', convId);
         setMessages(prev => [...prev, msgData]);
         setPendingAttachment(null);
-        const senderName = (user as any)?.profile?.name || (user as any)?.driver?.name || 'Motorista';
+        const senderName = (user as any)?.company?.company_name || (user as any)?.profile?.name || 'Transportadora';
         await supabase.from('notifications').insert({
           user_id: otherUserId,
           type: 'message',
@@ -492,9 +510,9 @@ export function ChatScreen() {
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         keyboardVerticalOffset={0}
       >
-      <View style={styles.header}>
+      <View style={[styles.header, { paddingTop: insets.top + 16 }]}>
         <TouchableOpacity onPress={() => navigation.navigate('Main', { screen: 'ChatTab', params: { screen: 'ChatList' } })} style={styles.backBtn}>
-          <Ionicons name="arrow-back" size={22} color={COLORS.text} />
+          <Ionicons name="arrow-back" size={22} color="#fff" />
         </TouchableOpacity>
         <TouchableOpacity style={styles.headerInfo} onPress={() => setShowProfileModal(true)} activeOpacity={0.8}>
           <CachedAvatar
@@ -504,19 +522,19 @@ export function ChatScreen() {
             borderRadius={20}
           />
           <View style={styles.headerInfoText}>
-            {(source === 'freight' || source === 'route') && originCity && destinationCity && (
+            {(convData.source === 'freight' || convData.source === 'route') && convData.originCity && convData.destinationCity && (
               <View style={styles.headerRouteRow}>
                 <Ionicons
-                  name={source === 'freight' ? 'document-text-outline' : 'map-outline'}
+                  name={convData.source === 'freight' ? 'document-text-outline' : 'map-outline'}
                   size={10}
-                  color={COLORS.primary}
+                  color="rgba(255,255,255,0.9)"
                 />
                 <Text style={styles.headerRouteText} numberOfLines={1} ellipsizeMode="tail">
-                  {originCity}/{originState}
+                  {convData.originCity}/{convData.originState}
                 </Text>
-                <Ionicons name="arrow-forward" size={10} color={COLORS.textSecondary} />
+                <Ionicons name="arrow-forward" size={10} color="rgba(255,255,255,0.7)" />
                 <Text style={styles.headerRouteText} numberOfLines={1} ellipsizeMode="tail">
-                  {destinationCity}/{destinationState}
+                  {convData.destinationCity}/{convData.destinationState}
                 </Text>
               </View>
             )}
@@ -524,7 +542,7 @@ export function ChatScreen() {
           </View>
         </TouchableOpacity>
         <TouchableOpacity style={styles.headerOptionsBtn} onPress={() => setShowOptionsModal(true)}>
-          <Ionicons name="ellipsis-vertical" size={22} color={COLORS.text} />
+          <Ionicons name="ellipsis-vertical" size={22} color="#fff" />
         </TouchableOpacity>
       </View>
 
@@ -764,21 +782,21 @@ export function ChatScreen() {
 const styles = StyleSheet.create({
   flex: { flex: 1, backgroundColor: COLORS.background },
   header: {
-    backgroundColor: COLORS.surface,
+    backgroundColor: COLORS.primary,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
+    paddingHorizontal: 20,
+    paddingBottom: 16,
     borderBottomWidth: 1,
-    borderBottomColor: COLORS.border,
+    borderBottomColor: 'rgba(255,255,255,0.1)',
   },
   backBtn: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center' },
   headerInfo: { flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 },
   headerInfoText: { gap: 1, flex: 1 },
   headerRouteRow: { flexDirection: 'row', alignItems: 'center', gap: 3, marginBottom: 1 },
-  headerRouteText: { fontSize: 10, color: COLORS.primary, fontWeight: '600', flexShrink: 1 },
-  headerName: { fontSize: 15, fontWeight: '700', color: COLORS.text },
+  headerRouteText: { fontSize: 10, color: '#fff', fontWeight: '600', flexShrink: 1, opacity: 0.9 },
+  headerName: { fontSize: 15, fontWeight: '700', color: '#fff' },
   headerSub: { fontSize: 12, color: COLORS.textSecondary },
   messages: { padding: 12, paddingBottom: 8, gap: 4 },
   daySeparator: {

@@ -8,6 +8,8 @@ Notifications.setNotificationHandler({
     shouldShowAlert: true,
     shouldPlaySound: true,
     shouldSetBadge: true,
+    shouldShowBanner: true,
+    shouldShowList: true,
   }),
 });
 
@@ -28,9 +30,9 @@ export async function registerForPushNotifications(userId: string): Promise<void
   if (!token) return;
 
   await supabase
-    .from('drivers')
-    .update({ push_token: token, push_token_updated_at: new Date().toISOString() })
-    .eq('user_id', userId);
+    .from('profiles')
+    .update({ push_token: token })
+    .eq('id', userId);
 
   if (Platform.OS === 'android') {
     await Notifications.setNotificationChannelAsync('default', {

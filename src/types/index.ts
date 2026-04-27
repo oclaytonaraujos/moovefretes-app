@@ -122,6 +122,7 @@ export interface Freight {
   company_logo?: string | null;
   publisher_phone?: string | null;
   created_by?: string;
+  publisher_id?: string;
   created_at: string;
   updated_at: string;
 
@@ -176,14 +177,13 @@ export interface Freight {
 export interface Company {
   id: string;
   user_id: string;
-  name: string;
-  company_type: 'transportadora' | 'embarcador' | 'agenciador';
+  company_name: string;
+  company_type: 'transportadora' | 'embarcador' | 'ambos' | 'agenciador';
   cnpj?: string;
   phone?: string;
   email?: string;
   logo?: string;
-  city?: string;
-  state?: string;
+  address?: { city?: string; state?: string; [key: string]: any };
   verified: boolean;
   created_at: string;
   description?: string;

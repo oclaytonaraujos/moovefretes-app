@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Linking, Vibration } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Linking, Vibration, Alert } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
@@ -13,6 +13,8 @@ import { FreightCargoCard } from '../components/freight-detail/FreightCargoCard'
 import { FreightContactsCard } from '../components/freight-detail/FreightContactsCard';
 import { FreightDimensionsCard } from '../components/freight-detail/FreightDimensionsCard';
 import type { Freight } from '../types';
+import { useAuth } from '../contexts/AuthContext';
+import { supabase } from '../lib/supabase';
 
 function generateFreightCode(id: string): string {
   const chars = id.replace(/[^A-Z0-9]/gi, '').toUpperCase();
@@ -26,10 +28,12 @@ export function FreightDetailScreen() {
   const navigation = useNavigation<any>();
   const route = useRoute<any>();
   const freight: Freight = route.params?.freight;
+  const { user } = useAuth();
 
   if (!freight) return null;
 
   const freightCode = freight.freight_code || generateFreightCode(freight.id);
+  const isOwn = freight.publisher_id === user?.id;
 
   function handleWhatsApp() {
     Vibration.vibrate(40);
@@ -72,6 +76,33 @@ export function FreightDetailScreen() {
         initialMessage: `Olá, tenho interesse no frete ${freightCode}.\n\n📦 ${formatLocation(freight.origin)} → ${formatLocation(freight.destination)}\nProduto: ${freight.product || freight.cargo_type || 'Não especificado'}\n\nA carga ainda está disponível? 🚚`,
       },
     });
+  }
+
+  function handleDelete() {
+    Alert.alert(
+      'Apagar Frete',
+      'Tem certeza que deseja apagar este frete permanentemente?',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        { 
+          text: 'Apagar', 
+          style: 'destructive',
+          onPress: async () => {
+            const { error } = await supabase.from('freights').delete().eq('id', freight.id);
+            if (error) {
+              Alert.alert('Erro', 'Não foi possível apagar o frete.');
+            } else {
+              navigation.goBack();
+            }
+          }
+        }
+      ]
+    );
+  }
+
+  function handleEdit() {
+     // TODO: Navegar para uma tela de edição se existir, ou usar a mesma tela de criação preenchida.
+     Alert.alert('Aviso', 'A edição de fretes será implementada em breve.');
   }
 
   return (
@@ -173,14 +204,29 @@ export function FreightDetailScreen() {
       </ScrollView>
 
       <View style={styles.bottomBar}>
-        <TouchableOpacity style={styles.chatBtn} onPress={handleChat}>
-          <Ionicons name="chatbubble-outline" size={15} color={COLORS.primary} />
-          <Text style={styles.chatBtnText}>Chat</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.whatsappBtn} onPress={handleWhatsApp}>
-          <Ionicons name="logo-whatsapp" size={15} color="#fff" />
-          <Text style={styles.whatsappBtnText}>Enviar Mensagem</Text>
-        </TouchableOpacity>
+        {isOwn ? (
+          <>
+            <TouchableOpacity style={styles.chatBtn} onPress={handleEdit}>
+              <Ionicons name="pencil-outline" size={15} color={COLORS.primary} />
+              <Text style={styles.chatBtnText}>Editar</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.whatsappBtn, { backgroundColor: COLORS.danger }]} onPress={handleDelete}>
+              <Ionicons name="trash-outline" size={15} color="#fff" />
+              <Text style={styles.whatsappBtnText}>Excluir Frete</Text>
+            </TouchableOpacity>
+          </>
+        ) : (
+          <>
+            <TouchableOpacity style={styles.chatBtn} onPress={handleChat}>
+              <Ionicons name="chatbubble-outline" size={15} color={COLORS.primary} />
+              <Text style={styles.chatBtnText}>Chat</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.whatsappBtn} onPress={handleWhatsApp}>
+              <Ionicons name="logo-whatsapp" size={15} color="#fff" />
+              <Text style={styles.whatsappBtnText}>Enviar Mensagem</Text>
+            </TouchableOpacity>
+          </>
+        )}
       </View>
     </View>
   );
